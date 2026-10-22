@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .codegen import CProgram, generate_c
 from .ir import IRModule, build_ir, check_against_program, validate_ir
 from .optimizer import OptimizationResult, optimize
 from .lexer import decode_source
@@ -34,3 +35,8 @@ def compile_to_ir(text: str, source_file: str = "<source>") -> IRModule:
 def compile_optimized(text: str, source_file: str = "<source>") -> OptimizationResult:
     """compile_to_ir followed by the optimizer (which re-validates its output)."""
     return optimize(compile_to_ir(text, source_file))
+
+
+def compile_to_c(text: str, source_file: str = "<source>", standalone: bool = False) -> CProgram:
+    """Front end, optimizer and C code generator (the generator re-validates the IR)."""
+    return generate_c(compile_optimized(text, source_file).module, standalone=standalone)
