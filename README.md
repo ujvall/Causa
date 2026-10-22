@@ -90,6 +90,7 @@ Planned phases (subject to revision): 4 optimizer and C code generation → 5 ru
 | [examples/](examples/) | `minimal.cau`, `pricing.cau`, `invalid-type-error.cau` (intentionally invalid) |
 | [causa/](causa/) | compiler package: `lexer.py`, `parser.py`, `astnodes.py`, `semantic.py`, `ir.py`, `frontend.py`, `diagnostics.py`, CLI in `__main__.py` |
 | [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_spec_cases.py` |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | branch and pull-request workflow; sole-contributor rules |
 
 ## Known design risks
 
