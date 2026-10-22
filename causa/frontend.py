@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .ir import IRModule, build_ir, check_against_program, validate_ir
+from .optimizer import OptimizationResult, optimize
 from .lexer import decode_source
 from .parser import Parser
 from .semantic import SemanticProgram, analyze
@@ -28,3 +29,8 @@ def compile_to_ir(text: str, source_file: str = "<source>") -> IRModule:
     validate_ir(module)
     check_against_program(module, sem)
     return module
+
+
+def compile_optimized(text: str, source_file: str = "<source>") -> OptimizationResult:
+    """compile_to_ir followed by the optimizer (which re-validates its output)."""
+    return optimize(compile_to_ir(text, source_file))

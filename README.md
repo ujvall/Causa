@@ -38,7 +38,7 @@ Full list: [language-specification.md §13](docs/language-specification.md#13-de
 
 ## Current phase
 
-**Phase 3 — semantic analysis and Causal IR (implemented).** The front end checks `.cau` programs completely and lowers them to validated, unoptimized Causal IR. **No CAUSA program can be executed yet**: there is no optimizer, code generator or runtime, so `show`, `explain`, `whatif`, `impact` and `assert` produce no output.
+**Phase 4 — optimizer (implemented).** The front end checks `.cau` programs completely, lowers them to validated Causal IR, and can optimize that IR while preserving every source-level binding and dependency. **No CAUSA program can be executed yet**: there is no code generator or runtime, so `show`, `explain`, `whatif`, `impact` and `assert` produce no output.
 
 | Stage | Status |
 |---|---|
@@ -46,7 +46,7 @@ Full list: [language-specification.md §13](docs/language-specification.md#13-de
 | Parser and AST (`causa/parser.py`, `causa/astnodes.py`) | implemented and tested |
 | Semantic analysis (`causa/semantic.py`): names, types, `whatif` overrides and targets (E301–E304, E401–E403) | implemented and tested |
 | Causal IR (`causa/ir.py`): nodes, actions, provenance graph, validator | implemented and tested |
-| Optimizer | **not yet implemented** |
+| Optimizer (`causa/optimizer.py`): constant folding, same-binding common-subexpression elimination, removal of dead constants; never folds anything that could raise a runtime error | implemented and tested |
 | C code generation, CAUSA runtime (`explain`/`whatif`/`impact` output, runtime errors) | **not yet implemented** |
 
 Requires Python 3.11+ and only the standard library. From the repository root:
@@ -64,9 +64,10 @@ py -3.11 -m causa ir examples/pricing.cau
 | `tokens FILE` | one token per line (`LINE:COLUMN KIND LEXEME`) |
 | `parse FILE` | the AST as S-expressions |
 | `check FILE` | parse and semantic analysis; reports success or the first diagnostic |
-| `ir FILE` | the validated Causal IR: node table, steps, bindings and binding-level dependencies |
+| `ir FILE` | the validated, unoptimized Causal IR: node table, steps, bindings and binding-level dependencies |
+| `optimize FILE` | the optimized Causal IR and a log of every fold, refused fold (`skip`), merge and removal |
 
-Diagnostics use the format `FILE:LINE:COLUMN: error[CODE]: MESSAGE`; for example `check examples/invalid-type-error.cau` reports `E401` at 8:19. The exit status is 0 on success, 1 on a CAUSA error and 2 if the file cannot be read. The compilation API is `causa.frontend.check(text)` and `causa.frontend.compile_to_ir(text, source_file)`.
+Diagnostics use the format `FILE:LINE:COLUMN: error[CODE]: MESSAGE`; for example `check examples/invalid-type-error.cau` reports `E401` at 8:19. The exit status is 0 on success, 1 on a CAUSA error and 2 if the file cannot be read. The compilation API is `causa.frontend.check(text)`, `causa.frontend.compile_to_ir(text, source_file)` and `causa.frontend.compile_optimized(text, source_file)`.
 
 Run the tests (standard-library `unittest`; no pytest needed):
 
@@ -74,9 +75,9 @@ Run the tests (standard-library `unittest`; no pytest needed):
 py -3.11 -m unittest discover -s tests
 ```
 
-The tests cover tokens, AST structure, operator precedence, all compile-time errors with their locations, semantic typing and dependency rules, IR construction and every IR invariant (including deliberately corrupted IR), and the IR example in [compiler-architecture §3.6](docs/compiler-architecture.md). Every case in [tests/specification-cases.md](tests/specification-cases.md) is run through the front end. Runtime, assertion and output expectations in that document are **not yet tested**, because nothing executes programs yet.
+The tests cover tokens, AST structure, operator precedence, all compile-time errors with their locations, semantic typing and dependency rules, IR construction and every IR invariant (including deliberately corrupted IR), the IR and folding examples in [compiler-architecture §3.6](docs/compiler-architecture.md), and the optimizer's folding results, runtime-error safety (no folding of division by zero, overflow or non-finite results), preserved dependencies (`x * 0`, `x - x`), determinism and idempotence. Every case in [tests/specification-cases.md](tests/specification-cases.md) is run through the front end. Runtime, assertion and output expectations in that document are **not yet tested**, because nothing executes programs yet.
 
-Planned phases (subject to revision): 4 optimizer and C code generation → 5 runtime and end-to-end tests.
+Planned phases (subject to revision): 5 C code generation (`phase-5-codegen`) → 6 runtime and end-to-end tests (`phase-6-runtime`).
 
 ## Documents
 
@@ -88,8 +89,8 @@ Planned phases (subject to revision): 4 optimizer and C code generation → 5 ru
 | [docs/semantic-decisions.md](docs/semantic-decisions.md) | decision log with rationale and alternatives |
 | [tests/specification-cases.md](tests/specification-cases.md) | specification test cases with expected outcomes |
 | [examples/](examples/) | `minimal.cau`, `pricing.cau`, `invalid-type-error.cau` (intentionally invalid) |
-| [causa/](causa/) | compiler package: `lexer.py`, `parser.py`, `astnodes.py`, `semantic.py`, `ir.py`, `frontend.py`, `diagnostics.py`, CLI in `__main__.py` |
-| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_spec_cases.py` |
+| [causa/](causa/) | compiler package: `lexer.py`, `parser.py`, `astnodes.py`, `semantic.py`, `ir.py`, `optimizer.py`, `frontend.py`, `diagnostics.py`, CLI in `__main__.py` |
+| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_optimizer.py`, `test_spec_cases.py` |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | branch and pull-request workflow; sole-contributor rules |
 
 ## Known design risks

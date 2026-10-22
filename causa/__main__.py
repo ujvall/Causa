@@ -1,9 +1,10 @@
-"""Command-line harness for the implemented front end (Phases 2-3).
+"""Command-line harness for the implemented front end and optimizer (Phases 2-4).
 
     py -3.11 -m causa tokens FILE   token stream
     py -3.11 -m causa parse FILE    AST as S-expressions
     py -3.11 -m causa check FILE    parse + semantic analysis
     py -3.11 -m causa ir FILE       validated, unoptimized Causal IR
+    py -3.11 -m causa optimize FILE optimized Causal IR and the optimization log
 
 None of these execute a CAUSA program: no code generator or runtime exists yet.
 Exit status: 0 success, 1 CAUSA diagnostic (printed to stderr), 2 file not readable.
@@ -17,8 +18,9 @@ from pathlib import Path
 
 from .astnodes import dump
 from .diagnostics import CausaError
-from .frontend import check, compile_to_ir
+from .frontend import check, compile_optimized, compile_to_ir
 from .ir import format_ir
+from .optimizer import format_log
 from .lexer import decode_source, tokenize
 from .parser import parse
 from .semantic import BindingKind
@@ -26,7 +28,7 @@ from .semantic import BindingKind
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="causa", description="CAUSA compiler front end (no backend yet).")
-    ap.add_argument("command", choices=["tokens", "parse", "check", "ir"])
+    ap.add_argument("command", choices=["tokens", "parse", "check", "ir", "optimize"])
     ap.add_argument("file", type=Path)
     args = ap.parse_args(argv)
 
@@ -48,8 +50,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.file}: semantic check passed: {inputs} inputs, "
                   f"{len(sem.symbols) - inputs} lets, {len(sem.program.statements)} statements "
                   f"(not executed)")
-        else:
+        elif args.command == "ir":
             print(format_ir(compile_to_ir(text, str(args.file))))
+        else:
+            result = compile_optimized(text, str(args.file))
+            print(format_ir(result.module, optimized=True))
+            print()
+            print("optimizations:")
+            print(format_log(result.log))
     except CausaError as err:
         print(err.format(str(args.file)), file=sys.stderr)
         return 1

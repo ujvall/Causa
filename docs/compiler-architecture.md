@@ -231,6 +231,24 @@ Forbidden:
 
 **Verification pass (mandatory).** After optimization, the compiler re-derives the binding-level graph from the optimized IR and checks it is identical to `provenance`, and checks the topological invariant. A mismatch is an internal compiler error, never a silent change.
 
+### 5.1 Implemented optimizer (Phase 4)
+
+`causa/optimizer.py` provides `optimize(module) -> OptimizationResult(module, log)`. It validates its input, makes one pass over the nodes in ascending ID order, and validates its output. `causa.frontend.compile_optimized(text)` runs the whole pipeline, and `py -3.11 -m causa optimize FILE` prints the optimized IR followed by the log. The unoptimized IR (`compile_to_ir`, `causa ir`) is unchanged.
+
+| Transformation | When it applies | Safety constraint |
+|---|---|---|
+| **Constant folding** | an `op` node whose operands are all `const` nodes | Evaluated with CAUSA semantics. `int` results are computed exactly and must lie in [−2^63, 2^63 − 1] (else R102). `float` operations use IEEE binary64 round-to-nearest-even, which Python floats implement exactly for `+ - * /` and int-to-float conversion, and the result must be finite (else R103). A zero divisor (including `-0.0`) is never folded (R101). When folding would hide a runtime error the node is left in place, keeping its location, and a `skip` entry records the reason. `and`/`or` are folded only when *both* operands are constants, so strict evaluation is never shortened. |
+| **Common-subexpression elimination** | an `op`/`const` node identical to an earlier node with the **same owner** (same kind, type, opcode, operands, and value compared by `repr`, so `0.0` and `-0.0` stay distinct) | Never across owners, so two bindings with the same expression stay separate. All of an owner's nodes lie between the same two actions, so no evaluation moves across an action. A removed duplicate fails only if the surviving earlier node fails first, at an earlier location, so the reported runtime error cannot change. |
+| **Removal** | CSE duplicates; `const` nodes left with no users after folding | Only constants (which cannot fail) and duplicates are removed. `input` and `bind` nodes and unused lets are never removed. |
+
+Details:
+
+* A folded node keeps its ID, owner and location (the operator's location, or for a folded `itof` the operand's), as in the §3.6 example. Removed IDs are retired, never reused, and their `def` steps are dropped.
+* The optimizer never looks through a binding reference, because a reference operand is an `input` or `bind` node, never a `const`. Identities such as `x * 0`, `x - x`, `x * 1` and `b or true` are therefore never rewritten, and every edge to an anchor survives.
+* **Two linked representations.** `provenance` (the binding-level graph, built from the unoptimized IR) is carried over unchanged: the optimized module holds the same object. The optimized node graph is what later code generation will consume. `explain`, `impact` and the `whatif` report set read only `provenance`, binding values and `source_text`. The verification pass re-derives the binding-level graph from the optimized nodes and requires it to equal `provenance`. The optimizer also checks that bindings, anchor nodes (apart from their operand) and every action are unchanged. A bind or assert operand may be redirected, for example when a folded root equals an earlier constant of the same owner.
+* **Log.** Each entry is `fold`, `skip`, `cse` or `remove`, with the node, the values involved and the justification, in a deterministic order (folds, skips and CSE in node order, then removals).
+* **Idempotence.** Running `optimize` on its own output returns an equal module; the second log contains only the same `skip` entries.
+
 ## 6. Code generation and runtime boundary
 
 ### 6.1 Division of responsibility

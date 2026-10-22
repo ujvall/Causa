@@ -523,8 +523,9 @@ def format_step(step: Step, module: IRModule) -> str:
     raise TypeError(step)
 
 
-def format_ir(module: IRModule) -> str:
-    lines = [f"; Causal IR (unoptimized) for {module.source_file}",
+def format_ir(module: IRModule, optimized: bool = False) -> str:
+    state = "optimized" if optimized else "unoptimized"
+    lines = [f"; Causal IR ({state}) for {module.source_file}",
              "; id   kind/opcode  operands        type    loc     owner      extra"]
     lines += [format_node(n) for n in module.nodes]
     lines += ["", "steps:"] + [f"  {format_step(s, module)}" for s in module.steps]

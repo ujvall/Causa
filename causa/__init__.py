@@ -1,1 +1,1 @@
-"""CAUSA compiler front end: lexer, parser, semantic analysis and Causal IR (Phases 2-3)."""
+"""CAUSA compiler: lexer, parser, semantic analysis, Causal IR and optimizer (Phases 2-4)."""
