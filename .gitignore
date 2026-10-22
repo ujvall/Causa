@@ -1,0 +1,32 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Generated knowledge graph (local development aid, machine-specific paths)
+graphify-out/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Build output (future phases)
+build/
+dist/
+*.egg-info/

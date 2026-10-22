@@ -1,0 +1,5 @@
+# Minimal valid CAUSA program.
+# Expected stdout:  y = 6
+input x = 2
+let y = x * 3
+show y

@@ -1,0 +1,181 @@
+(* ======================================================================
+   CAUSA version 1 -- formal grammar
+   ======================================================================
+
+   Notation (ISO/IEC 14977 style):
+     =        definition            ,   concatenation
+     |        alternative           ;   end of rule
+     [ x ]    optional (0 or 1)      { x }  repetition (0 or more)
+     ( x )    grouping              "x" terminal string
+     a - b    a, excluding b        (* *) comment
+     ? ... ?  special sequence (described in prose)
+
+   The grammar has two layers:
+     1. The LEXICAL grammar defines tokens from characters.
+     2. The SYNTACTIC grammar defines programs from tokens.
+   Upper-case names in the syntactic layer (IDENT, INT, FLOAT, NEWLINE)
+   are tokens produced by the lexical layer.
+
+   Semantic interpretation of every production is given in
+   docs/language-specification.md (section numbers in comments below).
+   ====================================================================== *)
+
+
+(* ----------------------------------------------------------------------
+   1. LEXICAL GRAMMAR                         (language-specification §3)
+   ---------------------------------------------------------------------- *)
+
+(* Source text is UTF-8. Non-ASCII characters may appear only inside
+   comments. *)
+source_char     = ? any Unicode scalar value ? ;
+
+letter          = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+                | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+                | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+                | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+                | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+                | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+digit           = "0" | nonzero_digit ;
+nonzero_digit   = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+(* Line terminators. A carriage return not followed by a line feed is
+   an invalid character (E101). *)
+line_terminator = "\n" | "\r\n" ;
+
+(* Whitespace separates tokens and is otherwise ignored. *)
+whitespace      = " " | "\t" ;
+
+(* A comment runs to the end of the line and is discarded. The line
+   terminator itself is NOT part of the comment. *)
+comment         = "#" , { source_char - ( "\n" | "\r" ) } ;
+
+(* Identifiers: ASCII only, case-sensitive. A lexeme matching a keyword
+   or reserved word is never an identifier. Tokens are formed by
+   maximal munch, so "showing" is one identifier, not "show" + "ing". *)
+identifier      = ( letter | "_" ) , { letter | digit | "_" } ;
+
+keyword         = "input" | "let" | "show" | "explain" | "whatif"
+                | "impact" | "assert" | "and" | "or" | "not"
+                | "true" | "false" ;
+
+(* Reserved for future versions. Using them as names is an error. *)
+reserved_word   = "if" | "then" | "else" | "int" | "float" | "bool" ;
+
+(* Numeric literals. Leading zeros are not permitted ("007", "00.5").
+   A float literal requires digits on both sides of the point ("1." and
+   ".5" are invalid). A numeric literal immediately followed by a letter,
+   digit, "_" or "." that does not continue the literal is malformed
+   (E102), e.g. "123abc", "1.5.2". Literals are unsigned; a minus sign is
+   always a separate token. *)
+int_part        = "0" | nonzero_digit , { digit } ;
+int_literal     = int_part ;
+float_literal   = int_part , "." , digit , { digit } , [ exponent ] ;
+exponent        = ( "e" | "E" ) , [ "+" | "-" ] , digit , { digit } ;
+
+(* Operators and punctuation. Longest match applies: "<=" is one token,
+   "=" followed by "=" is the single token "==". A lone "!" is invalid.
+   The two-character sequences "**" and "//" are unsupported operators and
+   are invalid (E101) rather than two "*" or "/" tokens, as stated in
+   language-specification §3.6 (clarified in Phase 2; "* *" with a space
+   between is two tokens and a syntax error). *)
+operator        = "==" | "!=" | "<=" | ">=" | "<" | ">"
+                | "+" | "-" | "*" | "/" | "=" | "(" | ")" ;
+
+(* Token stream produced by the lexer:
+     IDENT    from identifier
+     INT      from int_literal
+     FLOAT    from float_literal
+     keyword, reserved_word and operator lexemes as themselves
+     NEWLINE  from each line_terminator
+     EOF      at end of input
+   The lexer additionally guarantees:
+     - if the file is non-empty and does not end with a line terminator,
+       a NEWLINE token is emitted before EOF;
+     - whitespace and comments produce no tokens. *)
+
+
+(* ----------------------------------------------------------------------
+   2. SYNTACTIC GRAMMAR                       (language-specification §4)
+   ---------------------------------------------------------------------- *)
+
+(* A program is a sequence of lines. Each statement occupies exactly one
+   line; blank lines and comment-only lines are empty lines. There is no
+   line continuation. *)
+program         = { line } , EOF ;
+line            = [ statement ] , NEWLINE ;
+
+statement       = input_decl                         (* §7.1 *)
+                | let_decl                           (* §7.2 *)
+                | show_stmt                          (* §8.3 *)
+                | explain_stmt                       (* §8.4 *)
+                | whatif_stmt                        (* §8.5 *)
+                | impact_stmt                        (* §8.6 *)
+                | assert_stmt ;                      (* §8.7 *)
+
+input_decl      = "input" , IDENT , "=" , literal_value ;
+let_decl        = "let" , IDENT , "=" , expression ;
+show_stmt       = "show" , IDENT ;
+explain_stmt    = "explain" , IDENT ;
+impact_stmt     = "impact" , IDENT ;
+assert_stmt     = "assert" , expression ;
+
+(* Two forms (§8.5):
+     whatif price = 160               full report
+     whatif price = 160 show total    targeted report for one binding
+   Version 1 accepts exactly one override per whatif statement.
+   Forward-compatibility note (not part of version 1): a later version
+   may extend this rule to  override , { "," , override } , [ target ]
+   with simultaneous-override semantics. The "," token is not defined in
+   version 1, so "whatif a = 1, b = 2" is rejected (E101 at ",").
+   The "show" in a target is the same keyword as show_stmt; it is
+   unambiguous because a statement starts only at the beginning of a
+   line. *)
+whatif_stmt     = "whatif" , override , [ whatif_target ] ;
+override        = IDENT , "=" , literal_value ;
+whatif_target   = "show" , IDENT ;
+
+(* Literal values for input initializers and whatif overrides.
+   The optional "-" here is part of the value, not an operator (§5.4). *)
+literal_value   = [ "-" ] , ( INT | FLOAT )
+                | "true"
+                | "false" ;
+
+
+(* ----------------------------------------------------------------------
+   3. EXPRESSIONS                             (language-specification §6)
+
+   Precedence, lowest to highest:
+     1. or                         left-associative
+     2. and                        left-associative
+     3. not                        prefix (right-recursive)
+     4. == != < <= > >=            NON-associative (at most one per level)
+     5. + -                        left-associative (binary)
+     6. * /                        left-associative
+     7. -                          prefix (unary minus, right-recursive)
+     8. literals, names, ( ... )
+
+   Consequences fixed by this grammar:
+     not a == b        parses as  not (a == b)
+     -a * b            parses as  (-a) * b
+     a - b - c         parses as  (a - b) - c
+     a < b < c         is a syntax error (E202)
+     a == b == c       is a syntax error (E202)
+   ---------------------------------------------------------------------- *)
+
+expression      = or_expr ;
+or_expr         = and_expr , { "or" , and_expr } ;
+and_expr        = not_expr , { "and" , not_expr } ;
+not_expr        = "not" , not_expr
+                | comparison ;
+comparison      = additive , [ comp_op , additive ] ;
+comp_op         = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+additive        = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative  = unary , { ( "*" | "/" ) , unary } ;
+unary           = "-" , unary
+                | primary ;
+primary         = INT
+                | FLOAT
+                | "true"
+                | "false"
+                | IDENT
+                | "(" , expression , ")" ;

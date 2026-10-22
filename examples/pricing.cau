@@ -1,0 +1,36 @@
+# Pricing model demonstrating show, assert, explain, whatif and impact.
+# The exact expected output is given in docs/language-specification.md §12.
+
+input price = 100
+input discount = 0.25
+input tax = 0.125
+input fee = 4
+input units = 4
+
+let savings = price * discount
+let subtotal = price - savings
+let total = subtotal * (1 + tax) + fee
+let expensive = total > 50.0
+let per_unit = total / units
+let bulk = per_unit < 30.0
+
+show total
+assert total >= 0
+
+# Backward: how was total derived?
+explain total
+
+# Hypothetical inputs. Each whatif starts from the original inputs.
+whatif price = 160
+whatif discount = 0.5 show total
+whatif tax = 1 show total          # int literal promoted: tax is a float input
+whatif units = 0                   # hypothetical division by zero is reported, not fatal
+
+# Forward, static: which bindings depend on a given binding?
+impact price
+impact discount
+impact total
+
+# The original values are unaffected by the whatif statements above.
+show total
+show per_unit

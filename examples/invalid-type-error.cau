@@ -1,0 +1,9 @@
+# INVALID PROGRAM: intentionally rejected by the CAUSA compiler.
+# It must never compile. It demonstrates a static type error.
+#
+# Expected diagnostic (code and location are normative):
+#   invalid-type-error.cau:8:19: error[E401]: operator '+' requires numeric operands, found int and bool
+input price = 100
+input member = true
+let total = price + member
+show total
