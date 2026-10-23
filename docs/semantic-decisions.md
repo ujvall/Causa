@@ -66,6 +66,7 @@ Each entry: **Decision** (chosen behavior), **Rationale**, **Alternatives** cons
 * **Rationale:** Byte-exact expected output is required for end-to-end testing and for cross-checking the C runtime against a Python reference.
 * **Alternatives:** `printf("%g")` (loses precision, ambiguous), fixed decimals.
 * **Implications:** The C runtime must implement shortest round-trip formatting (e.g. try increasing precision with `%.*e` until `strtod` round-trips, then lay out per LS §8.2). Unresolved implementation risk R1.
+* **Phase 6:** implemented as planned, plus a neighbour check needed at powers of two (compiler-architecture §6.5). It matches Python's `repr` on every tested value and is verified on each test run. It depends on a correctly rounded C library `printf`/`strtod`.
 
 ### D11 — `explain` is binding-level, structural, and identity-based
 * **Decision:** Explanations show bindings (inputs and lets) with values and source text; constants appear only inside source text; shared dependencies are expanded once and later marked `see above`; bindings are never merged by value.

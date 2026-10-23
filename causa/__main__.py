@@ -9,9 +9,9 @@
                                     generated C (stdout unless -o is given)
 
 None of these execute a CAUSA program, and no C compiler is invoked. Generated
-C for a program using show/explain/whatif/impact/assert calls runtime library
-functions that are not implemented yet (Phase 6); a note says so on stderr, and
---standalone turns that into an error instead.
+C for a program using show/explain/whatif/impact/assert calls the runtime
+library: build it together with causa/runtime/causa_runtime.c (a note on stderr
+says so); --standalone rejects such programs instead.
 Exit status: 0 success, 1 CAUSA diagnostic (printed to stderr), 2 file not
 readable or writable, 3 the backend cannot produce the requested output.
 """
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .astnodes import dump
 from .diagnostics import CausaError
-from .codegen import RUNTIME_DIR, CodegenError
+from .codegen import RUNTIME_DIR, RUNTIME_SOURCE, CodegenError
 from .frontend import check, compile_optimized, compile_to_c, compile_to_ir
 from .ir import format_ir
 from .optimizer import format_log
@@ -76,9 +76,8 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout.write(program.source)
             if program.runtime_calls:
                 uses = ", ".join(f"{name} (line {line})" for name, line in program.runtime_calls)
-                print(f"causa: note: the generated C calls runtime library functions that are not "
-                      f"implemented yet (Phase 6): {uses}. It compiles against {RUNTIME_DIR / 'causa_runtime.h'} "
-                      f"but cannot be linked into an executable yet.", file=sys.stderr)
+                print(f"causa: note: the generated C uses the CAUSA runtime library ({uses}); build it "
+                      f"with -I {RUNTIME_DIR} together with {RUNTIME_SOURCE}", file=sys.stderr)
         else:
             result = compile_optimized(text, str(args.file))
             print(format_ir(result.module, optimized=True))

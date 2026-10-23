@@ -1,14 +1,13 @@
 /*
  * CAUSA runtime interface (compiler-architecture §6).
  *
- * Implemented here (Phase 5): value representation, metadata table types,
- * checked arithmetic, and base-execution runtime error reporting. A program
- * containing only `input` and `let` statements is complete with this header.
+ * Implemented in this header: value representation, metadata table types,
+ * checked arithmetic, stream setup and base-execution runtime error reporting.
+ * A program containing only `input` and `let` statements needs nothing else.
  *
- * Declared but NOT implemented yet (Phase 6 runtime library): causa_show,
- * causa_explain, causa_impact, causa_whatif and causa_assert. Generated code
- * that calls them compiles against this header but cannot be linked until the
- * runtime library exists.
+ * Implemented in causa_runtime.c (link it with the generated C): value
+ * formatting, causa_show, causa_explain, causa_impact, causa_whatif and
+ * causa_assert.
  *
  * Requirements: C99, 64-bit IEEE 754 doubles evaluated in double precision
  * (FLT_EVAL_METHOD == 0), round-to-nearest.
@@ -22,6 +21,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #if defined(FLT_EVAL_METHOD) && FLT_EVAL_METHOD != 0
 #error "CAUSA requires FLT_EVAL_METHOD == 0 (double arithmetic in double precision)"
@@ -183,6 +186,19 @@ static inline int causa_check(int code, int line, int column, causa_error *err)
     return code;
 }
 
+/* ---- streams ------------------------------------------------------------ */
+
+/* Called first by every generated main: output lines must end in a single
+   line feed (language-specification §9.1), so Windows text-mode translation
+   to CR LF is switched off. */
+static inline void causa_init(void)
+{
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
+}
+
 /* ---- base-execution runtime errors (implemented) ---------------------- */
 
 static inline const char *causa_error_description(int code)
@@ -207,8 +223,14 @@ static inline void causa_runtime_error(const causa_error *err)
     exit(2);
 }
 
-/* ---- runtime library (declared; implemented in Phase 6) --------------- */
-/* All take the base environment read-only. */
+/* ---- runtime library (causa_runtime.c) ---------------------------------- */
+/* All take the base environment read-only and write only to stdout, except
+   causa_assert, which reports a failure on stderr and exits with status 1. */
+
+#define CAUSA_VALUE_BUFSIZE 48
+/* Format a value as language-specification §8.2 requires (floats exactly as
+   Python's repr). `out` should hold CAUSA_VALUE_BUFSIZE bytes. */
+void causa_format_value(int type, causa_value value, char *out, size_t size);
 
 void causa_show(const causa_value *env, int binding);
 void causa_explain(const causa_value *env, int binding);

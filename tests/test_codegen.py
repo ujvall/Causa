@@ -203,7 +203,11 @@ class RuntimeInterfaceTests(unittest.TestCase):
         self.assertEqual(program.runtime_calls, (("causa_show", 3), ("causa_explain", 4), ("causa_impact", 5),
                                                  ("causa_whatif", 6)))
         self.assertFalse(program.standalone)
-        self.assertIn("NOT implemented yet", c)
+        self.assertIn(" * Uses the CAUSA runtime library: causa_show, causa_explain, causa_impact, causa_whatif.\n", c)
+        self.assertIn("causa_runtime.c -lm\n", c)
+        # stream setup comes before any evaluation or output
+        main_body = c.split("int main(void)")[1]
+        self.assertLess(main_body.index("causa_init();"), main_body.index("causa_eval_node("))
 
     def test_runtime_functions_are_declared_in_header(self) -> None:
         header = (RUNTIME_DIR / "causa_runtime.h").read_text(encoding="utf-8")
@@ -217,7 +221,7 @@ class RuntimeInterfaceTests(unittest.TestCase):
                 with self.assertRaises(CodegenError) as cm:
                     compile_to_c(src("input x = 1", statement), standalone=True)
                 self.assertIn(f"{name} (line 2)", str(cm.exception))
-                self.assertIn("Phase 6", str(cm.exception))
+                self.assertIn("runtime library (causa_runtime.c)", str(cm.exception))
 
     def test_standalone_accepts_inputs_and_lets(self) -> None:
         program = compile_to_c(src("input x = 1", "let y = x / 0"), standalone=True)
@@ -328,7 +332,7 @@ def values(*lines: str) -> dict[str, object]:
 class CompileTests(unittest.TestCase):
     def test_every_valid_specification_program_compiles(self) -> None:
         """All programs that pass the front end compile to warning-free C99 (-c only:
-        programs with actions need the Phase 6 runtime to link)."""
+        linking with causa_runtime.c and running is covered by test_runtime.py)."""
         sources = {case_id: source_of(case_id, program) for case_id, (program, expected) in CASES.items()
                    if case_id not in SEMANTIC_ERRORS and not (isinstance(expected, tuple) and expected[0] != "sem")}
         for name in ("minimal.cau", "pricing.cau"):
