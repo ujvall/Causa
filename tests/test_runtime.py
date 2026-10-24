@@ -12,6 +12,7 @@ import random
 import re
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -355,8 +356,10 @@ static void report(const char *label)
 {
     int i;
     printf("%s:", label);
-    for (i = 0; i < CAUSA_NODE_SLOTS; i++)
-        if (calls[i]) printf(" %d", i);
+    for (i = 0; i < CAUSA_NODE_SLOTS; i++) {
+        if (calls[i] == 1) printf(" %d", i);
+        else if (calls[i] > 1) printf(" %d*%d", i, calls[i]); /* evaluated more than once */
+    }
     printf("\n");
     memset(calls, 0, sizeof calls);
 }
@@ -368,7 +371,7 @@ int main(void)
     causa_init();
     for (i = 0; i < CAUSA_PROGRAM.node_count; i++)
         if (causa_eval_node(CAUSA_PROGRAM.nodes[i].id, env, &err)) return 9;
-    memset(calls, 0, sizeof calls);
+    report("EVAL-base"); /* validates the instrumentation itself */
     memcpy(before, env, sizeof env);
     causa_whatif(env, CAUSA_BINDING_a, (causa_value){ .i = 2 }, CAUSA_NO_TARGET, CAUSA_PROGRAM.binding_count);
     report("EVAL-a");
@@ -395,9 +398,15 @@ int main(void)
         owned = {}  # binding -> node IDs it owns (the optimizer does not change ownership)
         for node in module.nodes:
             owned.setdefault(node.owner, []).append(node.id)
-        eval_a = [int(x) for x in next(l for l in lines if l.startswith("EVAL-a:")).split()[1:]]
-        eval_d = [int(x) for x in next(l for l in lines if l.startswith("EVAL-d:")).split()[1:]]
-        optimized_ids = {n for n in range(1000)} & {int(m) for m in re.findall(r"case (\d+):", program.source)}
+        def evaluated(label: str) -> list[int]:
+            fields = next(l for l in lines if l.startswith(label + ":")).split()[1:]
+            self.assertNotIn("*", "".join(fields), f"{label}: a node was evaluated more than once")
+            return [int(x) for x in fields]
+
+        optimized_ids = {int(m) for m in re.findall(r"case (\d+):", program.source)}
+        # The counting wrapper sees every node exactly once during base evaluation.
+        self.assertEqual(evaluated("EVAL-base"), sorted(optimized_ids))
+        eval_a, eval_d = evaluated("EVAL-a"), evaluated("EVAL-d")
         # whatif a = 2: only b and e (the cone) are re-evaluated; c, q and the inputs are reused.
         self.assertEqual(eval_a, sorted(i for i in owned["b"] + owned["e"] if i in optimized_ids))
         # whatif d = 0: only q, and evaluation stops at its failing division, so
@@ -410,22 +419,125 @@ int main(void)
         self.assertIn("BASE unchanged", lines)
 
 
+def build_and_run(files: dict[str, str], main: str, extra_flags: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    """Write `files` to a temporary directory, build `main` with the runtime, run it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        for name, text in files.items():
+            (d / name).write_text(text, encoding="utf-8")
+        build = subprocess.run([CC, *CFLAGS, str(d / main), str(RUNTIME_SOURCE), "-o", str(d / "p.exe"), "-lm",
+                                *extra_flags], capture_output=True, text=True)
+        if build.returncode != 0:
+            raise AssertionError(f"C build failed:\n{build.stderr}")
+        return subprocess.run([str(d / "p.exe")], capture_output=True, text=True, timeout=120)
+
+
 @unittest.skipUnless(CC, "no C compiler found (set CAUSA_CC to enable)")
 class MalformedMetadataTests(unittest.TestCase):
-    def test_corrupted_dependency_table_is_rejected(self) -> None:
-        c = compile_to_c("input x = 1\nlet y = x + 1\nexplain y\n", "F").source
-        corrupted = c.replace("static const int causa_b1_deps[] = { CAUSA_BINDING_x };",
-                              "static const int causa_b1_deps[] = { 7 };")
-        self.assertNotEqual(c, corrupted)
-        with tempfile.TemporaryDirectory() as tmp:
-            d = Path(tmp)
-            (d / "p.c").write_text(corrupted, encoding="utf-8")
-            build = subprocess.run([CC, *CFLAGS, str(d / "p.c"), str(RUNTIME_SOURCE), "-o", str(d / "p.exe"), "-lm"],
-                                   capture_output=True, text=True)
-            self.assertEqual(build.returncode, 0, build.stderr)
-            run = subprocess.run([str(d / "p.exe")], capture_output=True, text=True, timeout=30)
-        self.assertEqual((run.returncode, run.stdout), (2, ""))
-        self.assertEqual(run.stderr.strip(), "F: internal error: malformed dependency metadata")
+    """Corrupted generated tables must be rejected with an internal error before
+    the runtime uses them (exit 2, nothing on stdout), never read blindly."""
+
+    SOURCE = "input x = 1\nlet y = x + 1\nexplain y\n"
+    LET_ROW = '{ "y", CAUSA_KIND_LET, CAUSA_TYPE_INT, 3, 2, 5, "x + 1",'
+    CORRUPTIONS = [
+        ("dependency index", "static const int causa_b1_deps[] = { CAUSA_BINDING_x };",
+         "static const int causa_b1_deps[] = { 7 };", "F: internal error: malformed dependency metadata"),
+        # Audit regressions: an invalid kind used to pass validation, after which explain
+        # printed the NULL source text with %s; a NULL source file name was never checked.
+        ("binding kind", LET_ROW, '{ "y", 7, CAUSA_TYPE_INT, 3, 2, 5, NULL,',
+         "F: internal error: malformed binding metadata"),
+        ("source file name", '    "F", CAUSA_NODE_SLOTS,', "    NULL, CAUSA_NODE_SLOTS,",
+         "<unknown>: internal error: malformed program metadata"),
+        ("binding name", LET_ROW, '{ NULL, CAUSA_KIND_LET, CAUSA_TYPE_INT, 3, 2, 5, "x + 1",',
+         "F: internal error: malformed binding metadata"),
+        ("anchor", LET_ROW, '{ "y", CAUSA_KIND_LET, CAUSA_TYPE_INT, 999, 2, 5, "x + 1",',
+         "F: internal error: malformed binding metadata"),
+        ("type tag", LET_ROW, '{ "y", CAUSA_KIND_LET, 9, 3, 2, 5, "x + 1",',
+         "F: internal error: malformed binding metadata"),
+    ]
+
+    def test_corruptions_are_rejected(self) -> None:
+        c = compile_to_c(self.SOURCE, "F").source
+        for what, old, new, message in self.CORRUPTIONS:
+            with self.subTest(corrupted=what):
+                self.assertIn(old, c)
+                run = build_and_run({"p.c": c.replace(old, new)}, "p.c")
+                self.assertEqual((run.returncode, run.stdout, run.stderr), (2, "", message + "\n"))
+
+
+@unittest.skipUnless(CC, "no C compiler found (set CAUSA_CC to enable)")
+class WhatifRequestValidationTests(unittest.TestCase):
+    """causa_whatif must reject an invalid request before printing anything.
+    Audit regression: a target below CAUSA_NO_TARGET was silently treated as the
+    full form, and a target outside the dependency cone was only detected after
+    the header had been printed."""
+
+    HARNESS = r"""
+#define CAUSA_NO_MAIN
+#include "prog.c"
+int main(void)
+{
+    static causa_value env[CAUSA_NODE_SLOTS];
+    causa_error err;
+    int i;
+    causa_init();
+    for (i = 0; i < CAUSA_PROGRAM.node_count; i++)
+        if (causa_eval_node(CAUSA_PROGRAM.nodes[i].id, env, &err)) return 9;
+    causa_whatif(env, INPUT, (causa_value){ .i = 5 }, TARGET, VISIBLE);
+    return 0;
+}
+"""
+
+    def run_request(self, input_binding: str, target: str, visible: str) -> subprocess.CompletedProcess:
+        c = compile_to_c("input x = 1\ninput k = 3\nlet y = x + 1\nwhatif x = 2\n", "F").source
+        main = (self.HARNESS.replace("INPUT", input_binding).replace("TARGET", target)
+                .replace("VISIBLE", visible))
+        return build_and_run({"prog.c": c, "h.c": main}, "h.c")
+
+    def test_invalid_requests(self) -> None:
+        cases = [
+            ("CAUSA_BINDING_x", "-5", "3", "invalid whatif request"),
+            ("CAUSA_BINDING_x", "CAUSA_BINDING_k", "3", "whatif target does not depend on the input"),
+            ("CAUSA_BINDING_x", "CAUSA_BINDING_y", "2", "invalid whatif request"),  # target not visible
+            ("CAUSA_BINDING_k", "CAUSA_NO_TARGET", "1", "invalid whatif request"),  # input not visible
+            ("CAUSA_BINDING_y", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # not an input
+        ]
+        for input_binding, target, visible, message in cases:
+            with self.subTest(input=input_binding, target=target, visible=visible):
+                run = self.run_request(input_binding, target, visible)
+                self.assertEqual((run.returncode, run.stdout, run.stderr),
+                                 (2, "", f"F: internal error: {message}\n"))
+
+    def test_valid_requests_still_work(self) -> None:
+        run = self.run_request("CAUSA_BINDING_x", "CAUSA_BINDING_y", "3")
+        self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "whatif x = 5 show y\n  y: 2 -> 6\n", ""))
+
+
+@unittest.skipUnless(CC and sys.platform == "win32",
+                     "needs a C compiler and the PE linker option --stack (Windows/MinGW)")
+class DeepExplainTests(unittest.TestCase):
+    """Audit regression: explain recursed once per dependency level and crashed
+    with a stack overflow (STATUS_STACK_OVERFLOW) on a 20,000-binding chain.
+    The executable is linked with a 64 KiB stack so that a recursive
+    implementation overflows on this 2,000-level chain."""
+
+    N = 2000
+
+    def test_long_chain(self) -> None:
+        n = self.N
+        lines = ["input x0 = 1"] + [f"let x{i} = x{i - 1} + 1" for i in range(1, n)] + [f"explain x{n - 1}"]
+        c = compile_to_c("\n".join(lines) + "\n", "F").source
+        run = build_and_run({"p.c": c}, "p.c", ("-Wl,--stack,65536",))
+        expected = [f"explain x{n - 1}"]
+        for depth in range(n - 1):
+            k = n - 1 - depth
+            expected.append(f"{' ' * 2 * (depth + 1)}x{k} = {k + 1}  [let: x{k - 1} + 1]")
+        expected.append(f"{' ' * 2 * n}x0 = 1  [input]")
+        chain = ", ".join(f"x{i}" for i in range(n - 1))
+        expected += [f"  direct dependencies: x{n - 2}", f"  transitive dependencies: {chain}", "  inputs: x0",
+                     "  intermediates: " + ", ".join(f"x{i}" for i in range(1, n - 1))]
+        self.assertEqual((run.returncode, run.stderr), (0, ""))
+        self.assertEqual(run.stdout, "\n".join(expected) + "\n")
 
 
 if __name__ == "__main__":

@@ -87,7 +87,7 @@ gcc -std=c99 -I causa/runtime pricing.c causa/runtime/causa_runtime.c -o pricing
 
 The executable prints exactly the output in [language-specification §12](docs/language-specification.md#12-worked-example). It exits with status 0 on success, 1 if an assertion fails, and 2 on a runtime error; diagnostics go to stderr.
 
-Diagnostics use the format `FILE:LINE:COLUMN: error[CODE]: MESSAGE`; for example `check examples/invalid-type-error.cau` reports `E401` at 8:19. The exit status is 0 on success, 1 on a CAUSA error, 2 if a file cannot be read or written, and 3 if the backend cannot produce the requested output (`--standalone` with runtime-library statements). The compilation API is `causa.frontend.check(text)`, `compile_to_ir(text, source_file)`, `compile_optimized(text, source_file)` and `compile_to_c(text, source_file, standalone=False)`.
+Diagnostics use the format `FILE:LINE:COLUMN: error[CODE]: MESSAGE`; for example `check examples/invalid-type-error.cau` reports `E401` at 8:19. The exit status is 0 on success, 1 on a CAUSA error, 2 on a command-line usage error or if a file cannot be read or written, and 3 if the backend cannot produce the requested output (`--standalone` with runtime-library statements). The compilation API is `causa.frontend.check(text)`, `compile_to_ir(text, source_file)`, `compile_optimized(text, source_file)` and `compile_to_c(text, source_file, standalone=False)`.
 
 Run the tests (standard-library `unittest`; no pytest needed):
 
@@ -100,7 +100,8 @@ The tests cover tokens, AST structure, operator precedence, all compile-time err
 * compile every valid specification program warning-free with `-std=c99 -Wall -Wextra -Wpedantic -Werror`;
 * build and run every runtime specification case and compare stdout, stderr and exit status exactly ([tests/test_runtime.py](tests/test_runtime.py)), including the full §12 example;
 * check float formatting against Python's `repr` on 35,000 values;
-* run additional regression programs (isolation across repeated `whatif`s, strict `or` inside a `whatif`, `impact` over multiple paths, equal-valued bindings in `explain`, assertion diagnostics, integer extremes).
+* run additional regression programs (isolation across repeated `whatif`s, strict `or` inside a `whatif`, `impact` over multiple paths, equal-valued bindings in `explain`, assertion diagnostics, integer extremes);
+* check that corrupted metadata tables and invalid `whatif` requests are rejected before any output, and (on Windows) that `explain` handles a 2,000-level dependency chain in a 64 KiB stack.
 
 Without a compiler those tests are skipped, not failed; with one, none are skipped.
 

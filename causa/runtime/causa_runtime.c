@@ -23,7 +23,7 @@
 static void causa_internal(const char *what)
 {
     fflush(stdout);
-    fprintf(stderr, "%s: internal error: %s\n", P.source_file, what);
+    fprintf(stderr, "%s: internal error: %s\n", P.source_file ? P.source_file : "<unknown>", what);
     exit(2);
 }
 
@@ -42,7 +42,7 @@ static void causa_check_program(void)
     static int checked = 0;
     int i, j;
     if (checked) return;
-    if (P.node_slots <= 0 || P.node_count < 0 || P.binding_count < 0 || P.assert_count < 0 ||
+    if (!P.source_file || P.node_slots <= 0 || P.node_count < 0 || P.binding_count < 0 || P.assert_count < 0 ||
         (P.node_count > 0 && !P.nodes) || (P.binding_count > 0 && !P.bindings) ||
         (P.assert_count > 0 && !P.asserts))
         causa_internal("malformed program metadata");
@@ -55,7 +55,8 @@ static void causa_check_program(void)
     }
     for (i = 0; i < P.binding_count; i++) {
         const causa_binding_info *b = &P.bindings[i];
-        if (!b->name || b->anchor < 0 || b->anchor >= P.node_slots || b->type < CAUSA_TYPE_INT ||
+        if (!b->name || (b->kind != CAUSA_KIND_INPUT && b->kind != CAUSA_KIND_LET) ||
+            b->anchor < 0 || b->anchor >= P.node_slots || b->type < CAUSA_TYPE_INT ||
             b->type > CAUSA_TYPE_BOOL || b->dep_count < 0 || b->ref_count != b->dep_count ||
             b->dependent_count < 0 || (b->kind == CAUSA_KIND_LET && !b->source_text) ||
             (b->kind == CAUSA_KIND_INPUT && b->dep_count != 0) ||
@@ -199,25 +200,46 @@ void causa_show(const causa_value *env, int binding)
 
 /* ---- explain (§8.4) ----------------------------------------------------- */
 
-static void causa_explain_node(const causa_value *env, int binding, int depth, unsigned char *printed)
+typedef struct {
+    int binding;
+    int depth;
+} causa_frame;
+
+/* Pre-order derivation tree. An explicit heap stack replaces recursion: a
+   dependency chain is as deep as the program is long, and recursing per level
+   overflowed the C stack (about 13,000 levels with MinGW's default stack).
+   Each binding is expanded at most once, so the stack never holds more than
+   1 + (total number of references) frames. */
+static void causa_explain_tree(const causa_value *env, int root, unsigned char *printed)
 {
-    const causa_binding_info *b = &P.bindings[binding];
-    char v[CAUSA_VALUE_BUFSIZE];
-    int j;
-    const char *kind = b->kind == CAUSA_KIND_INPUT ? "input" : "let";
-    printf("%*s%s = %s  ", 2 * (depth + 1), "", b->name, causa_value_text(binding, env, v));
-    if (printed[binding]) {
-        printf("[%s, see above]\n", kind);
-        return;
+    size_t capacity = 1, top = 0;
+    causa_frame *stack;
+    int i, j;
+    for (i = 0; i < P.binding_count; i++) capacity += (size_t)P.bindings[i].ref_count;
+    stack = causa_alloc(capacity, sizeof *stack);
+    stack[top].binding = root;
+    stack[top++].depth = 0;
+    while (top > 0) {
+        causa_frame f = stack[--top];
+        const causa_binding_info *b = &P.bindings[f.binding];
+        char v[CAUSA_VALUE_BUFSIZE];
+        printf("%*s%s = %s  ", 2 * (f.depth + 1), "", b->name, causa_value_text(f.binding, env, v));
+        if (printed[f.binding]) {
+            printf("[%s, see above]\n", b->kind == CAUSA_KIND_INPUT ? "input" : "let");
+            continue;
+        }
+        printed[f.binding] = 1;
+        if (b->kind == CAUSA_KIND_INPUT) {
+            printf("[input]\n");
+            continue;
+        }
+        printf("[let: %s]\n", b->source_text);
+        for (j = b->ref_count - 1; j >= 0; j--) { /* reversed, so children pop in reference order */
+            stack[top].binding = b->refs[j];
+            stack[top++].depth = f.depth + 1;
+        }
     }
-    printed[binding] = 1;
-    if (b->kind == CAUSA_KIND_INPUT) {
-        printf("[input]\n");
-        return;
-    }
-    printf("[let: %s]\n", b->source_text);
-    /* refs are strictly earlier bindings (checked), so recursion depth is bounded */
-    for (j = 0; j < b->ref_count; j++) causa_explain_node(env, b->refs[j], depth + 1, printed);
+    free(stack);
 }
 
 void causa_explain(const causa_value *env, int binding)
@@ -234,7 +256,7 @@ void causa_explain(const causa_value *env, int binding)
     lets = causa_alloc((size_t)P.binding_count, 1);
 
     printf("explain %s\n", b->name);
-    causa_explain_node(env, binding, 0, printed);
+    causa_explain_tree(env, binding, printed);
 
     for (j = 0; j < b->dep_count; j++) direct[b->deps[j]] = reach[b->deps[j]] = 1;
     for (i = binding - 1; i >= 0; i--) /* deps point backwards: one reverse sweep closes the set */
@@ -323,7 +345,10 @@ void causa_whatif(const causa_value *env, int input_binding, causa_value value, 
 
     causa_check_binding(input_binding);
     in = &P.bindings[input_binding];
-    if (in->kind != CAUSA_KIND_INPUT || visible > P.binding_count || target_binding >= visible)
+    /* The input is declared before the statement, so it is visible; the target is
+       CAUSA_NO_TARGET or a visible binding. All checks happen before any output. */
+    if (in->kind != CAUSA_KIND_INPUT || visible > P.binding_count || input_binding >= visible ||
+        target_binding < CAUSA_NO_TARGET || target_binding >= visible)
         causa_internal("invalid whatif request");
 
     /* A fresh counterfactual environment: the base environment is never written. */
@@ -335,6 +360,8 @@ void causa_whatif(const causa_value *env, int input_binding, causa_value value, 
     cause = causa_alloc((size_t)P.binding_count, sizeof *cause);
     errors = causa_alloc((size_t)P.binding_count, sizeof *errors);
     causa_cone(input_binding, visible, cone);
+    if (target_binding >= 0 && !cone[target_binding]) /* the E304 rule, before any output */
+        causa_internal("whatif target does not depend on the input");
 
     for (i = 0; i < P.binding_count; i++) {
         const causa_binding_info *b = &P.bindings[i];
@@ -366,7 +393,6 @@ void causa_whatif(const causa_value *env, int input_binding, causa_value value, 
     printf("whatif %s = %s", in->name, v);
     if (target_binding >= 0) {
         printf(" show %s\n", P.bindings[target_binding].name);
-        if (!cone[target_binding]) causa_internal("whatif target does not depend on the input");
         causa_outcome_line(target_binding, env, cf, state, errors, cause);
     } else {
         printf("\n  %s: %s -> %s  (override)\n", in->name, causa_value_text(input_binding, env, base), v);

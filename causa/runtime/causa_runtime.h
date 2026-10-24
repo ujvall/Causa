@@ -214,12 +214,13 @@ static inline const char *causa_error_description(int code)
 /* language-specification §9.3: report and exit with status 2. */
 static inline void causa_runtime_error(const causa_error *err)
 {
+    const char *file = CAUSA_PROGRAM.source_file ? CAUSA_PROGRAM.source_file : "<unknown>";
     fflush(stdout);
     if (err->code >= CAUSA_R101 && err->code <= CAUSA_R103)
-        fprintf(stderr, "%s:%d:%d: runtime error[R%d]: %s\n", CAUSA_PROGRAM.source_file,
+        fprintf(stderr, "%s:%d:%d: runtime error[R%d]: %s\n", file,
                 err->line, err->column, err->code, causa_error_description(err->code));
     else
-        fprintf(stderr, "%s: internal compiler error (code %d)\n", CAUSA_PROGRAM.source_file, err->code);
+        fprintf(stderr, "%s: internal compiler error (code %d)\n", file, err->code);
     exit(2);
 }
 

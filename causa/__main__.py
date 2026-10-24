@@ -12,8 +12,9 @@ None of these execute a CAUSA program, and no C compiler is invoked. Generated
 C for a program using show/explain/whatif/impact/assert calls the runtime
 library: build it together with causa/runtime/causa_runtime.c (a note on stderr
 says so); --standalone rejects such programs instead.
-Exit status: 0 success, 1 CAUSA diagnostic (printed to stderr), 2 file not
-readable or writable, 3 the backend cannot produce the requested output.
+Exit status: 0 success, 1 CAUSA diagnostic (printed to stderr), 2 command-line
+usage error or file not readable/writable, 3 the backend cannot produce the
+requested output.
 """
 
 from __future__ import annotations
