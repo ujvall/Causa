@@ -39,6 +39,8 @@ Full list: [language-specification.md §13](docs/language-specification.md#13-de
 
 ## Current phase
 
+**CAUSA Studio — desktop application.** A dedicated environment for CAUSA: an editor with highlighting and live diagnostics, an integrated console, the dependency graph, and Explain, Impact and What-if panels, all driven by the real compiler and runtime ([guide](docs/studio.md)). No language changes.
+
 **Phase 9 — release readiness.** A verified [getting-started guide](#getting-started), a [demonstration](docs/demonstration.md) whose shell commands and outputs are executed by the tests, and a reproducible [evaluation](docs/evaluation.md). No language changes.
 
 **Phase 8 — launch arguments.** A compiled program can set inputs when it starts: `./pricing --set price=150 --set tax=0.2` ([language-specification §9.5](docs/language-specification.md), decision D25). Values follow the source literal rules, including int-to-float promotion. Invalid arguments are rejected before anything runs, with `argument error[A101–A109]` on stderr and exit status 3. Run without arguments, every program behaves and prints exactly as before.
@@ -161,6 +163,16 @@ All diagnostics go to stderr. Compiled programs end every line with `\n`, on Win
 * Verified: Windows 11 with Python 3.11.9 and MSYS2 UCRT64 GCC 16.1.0, in Git Bash and Windows PowerShell 5.1; the full test suite passes with no skips. The compiler-only tests (no C compiler present) also pass with Python 3.14 on Ubuntu 26.04 under WSL.
 * Not verified: building and running generated C on Linux or macOS, Clang, MSVC, and other C libraries. The generated C is standard C99, and the runtime has a Windows-only branch for binary output. Float formatting depends on a correctly rounded `printf`/`strtod` (risk R1), which the tests check.
 
+## CAUSA Studio
+
+A desktop application for writing, running and exploring CAUSA programs. From the repository root:
+
+```bash
+py -3.11 -m studio
+```
+
+It opens with a copy of `examples/pricing.cau`. Press **Run** (F5) to compile and run it; the output, diagnostics, exit code and timings appear in the built-in console. The **Graph** tab shows the program's dependencies, and the **Explain**, **Impact** and **What-if** tabs run those statements through the real CAUSA runtime. Studio needs only Python 3.11+ with Tk and, to run programs, the same C compiler as above. See [docs/studio.md](docs/studio.md) for the full guide, its architecture and Windows packaging.
+
 ## Compiler commands
 
 | Command | Output |
@@ -184,6 +196,7 @@ The tests cover tokens, AST structure, operator precedence, all compile-time err
 * run additional regression programs (isolation across repeated `whatif`s, strict `or` inside a `whatif`, `impact` over multiple paths, equal-valued bindings in `explain`, assertion diagnostics, integer extremes);
 * check that corrupted metadata tables and invalid `whatif` requests are rejected before any output, and (on Windows) that `explain` handles a 2,000-level dependency chain in a 64 KiB stack;
 * run launch-argument cases L01–L21, check that `--set` gives the same result as editing the source, and compare the C literal parser with the Python lexer on about 12,000 strings ([tests/test_launch.py](tests/test_launch.py));
+* exercise CAUSA Studio's service layer and drive its window through the main workflows ([tests/test_studio_service.py](tests/test_studio_service.py), [tests/test_studio_ui.py](tests/test_studio_ui.py); the window tests need a display);
 * run every shell command in [docs/demonstration.md](docs/demonstration.md) and compare its output ([tests/test_demo.py](tests/test_demo.py)).
 
 ## Evaluation
@@ -206,10 +219,12 @@ Possible next steps: a single `build`/`run` command that invokes the C compiler,
 | [docs/semantic-decisions.md](docs/semantic-decisions.md) | decision log with rationale and alternatives |
 | [docs/demonstration.md](docs/demonstration.md) | guided demonstration with exact outputs |
 | [docs/evaluation.md](docs/evaluation.md) | measurements and how to reproduce them |
+| [docs/studio.md](docs/studio.md) | CAUSA Studio desktop application: usage, architecture, packaging, limitations |
+| [studio/](studio/) | CAUSA Studio (Tkinter): `service.py` (compiler and process integration), `app.py`, `editor.py`, `console.py`, `graph.py`, `panels.py`, `theme.py`; packaging in [packaging/](packaging/) |
 | [tests/specification-cases.md](tests/specification-cases.md) | specification test cases with expected outcomes |
 | [examples/](examples/) | `minimal.cau`, `pricing.cau` (the demonstration program), `unit-price.cau` (header-only build), `invalid-type-error.cau` (intentionally invalid) |
 | [causa/](causa/) | compiler package: `lexer.py`, `parser.py`, `astnodes.py`, `semantic.py`, `ir.py`, `optimizer.py`, `codegen.py`, `frontend.py`, `diagnostics.py`, CLI in `__main__.py`; runtime in `runtime/causa_runtime.h` and `runtime/causa_runtime.c` |
-| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_optimizer.py`, `test_codegen.py`, `test_runtime.py`, `test_launch.py`, `test_demo.py`, `test_spec_cases.py` |
+| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_optimizer.py`, `test_codegen.py`, `test_runtime.py`, `test_launch.py`, `test_demo.py`, `test_spec_cases.py`, `test_studio_service.py`, `test_studio_ui.py` |
 | [benchmarks/benchmark.py](benchmarks/benchmark.py) | evaluation script |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Git workflow and sole-contributor rules |
 
