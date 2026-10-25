@@ -79,7 +79,7 @@ exponent        = ( "e" | "E" ) , [ "+" | "-" ] , digit , { digit } ;
    language-specification §3.6 (clarified in Phase 2; "* *" with a space
    between is two tokens and a syntax error). *)
 operator        = "==" | "!=" | "<=" | ">=" | "<" | ">"
-                | "+" | "-" | "*" | "/" | "=" | "(" | ")" ;
+                | "+" | "-" | "*" | "/" | "=" | "(" | ")" | "," ;
 
 (* Token stream produced by the lexer:
      IDENT    from identifier
@@ -119,18 +119,16 @@ explain_stmt    = "explain" , IDENT ;
 impact_stmt     = "impact" , IDENT ;
 assert_stmt     = "assert" , expression ;
 
-(* Two forms (§8.5):
-     whatif price = 160               full report
-     whatif price = 160 show total    targeted report for one binding
-   Version 1 accepts exactly one override per whatif statement.
-   Forward-compatibility note (not part of version 1): a later version
-   may extend this rule to  override , { "," , override } , [ target ]
-   with simultaneous-override semantics. The "," token is not defined in
-   version 1, so "whatif a = 1, b = 2" is rejected (E101 at ",").
+(* Forms (§8.5):
+     whatif price = 160                                full report
+     whatif price = 160 show total                     targeted report for one binding
+     whatif price = 160, discount = 0.5 [show total]   several overrides, applied together
+   Several comma-separated overrides were added in specification
+   revision 3 (Phase 7). The "," token is valid only here.
    The "show" in a target is the same keyword as show_stmt; it is
    unambiguous because a statement starts only at the beginning of a
    line. *)
-whatif_stmt     = "whatif" , override , [ whatif_target ] ;
+whatif_stmt     = "whatif" , override , { "," , override } , [ whatif_target ] ;
 override        = IDENT , "=" , literal_value ;
 whatif_target   = "show" , IDENT ;
 

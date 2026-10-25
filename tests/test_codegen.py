@@ -196,10 +196,10 @@ class RuntimeInterfaceTests(unittest.TestCase):
         self.assertIn("causa_show(env, CAUSA_BINDING_u); /* line 3 */", c)
         self.assertIn("causa_explain(env, CAUSA_BINDING_t); /* line 4 */", c)
         self.assertIn("causa_impact(env, CAUSA_BINDING_t, 2); /* line 5 */", c)
-        self.assertIn("causa_whatif(env, CAUSA_BINDING_t, (causa_value){ .f = 0x1.0000000000000p+0 /* 1.0 */ }, "
-                      "CAUSA_BINDING_u, 2); /* line 6 */", c)
-        self.assertIn("causa_whatif(env, CAUSA_BINDING_t, (causa_value){ .f = 0x1.0000000000000p-2 /* 0.25 */ }, "
-                      "CAUSA_NO_TARGET, 2); /* line 7 */", c)
+        self.assertIn("causa_whatif(env, (const causa_override[]){ { CAUSA_BINDING_t, "
+                      "{ .f = 0x1.0000000000000p+0 /* 1.0 */ } } }, 1, CAUSA_BINDING_u, 2); /* line 6 */", c)
+        self.assertIn("causa_whatif(env, (const causa_override[]){ { CAUSA_BINDING_t, "
+                      "{ .f = 0x1.0000000000000p-2 /* 0.25 */ } } }, 1, CAUSA_NO_TARGET, 2); /* line 7 */", c)
         self.assertEqual(program.runtime_calls, (("causa_show", 3), ("causa_explain", 4), ("causa_impact", 5),
                                                  ("causa_whatif", 6)))
         self.assertFalse(program.standalone)
@@ -208,6 +208,15 @@ class RuntimeInterfaceTests(unittest.TestCase):
         # stream setup comes before any evaluation or output
         main_body = c.split("int main(void)")[1]
         self.assertLess(main_body.index("causa_init();"), main_body.index("causa_eval_node("))
+
+    def test_several_overrides_call(self) -> None:
+        c = compile_to_c(src("input p = 100", "input d = 0.25", "input m = true", "let y = p * d",
+                             "whatif d = 1, p = -5, m = false show y"), "t.cau").source
+        # one compound-literal array in statement order; promotion already applied to d
+        self.assertIn("causa_whatif(env, (const causa_override[]){ "
+                      "{ CAUSA_BINDING_d, { .f = 0x1.0000000000000p+0 /* 1.0 */ } }, "
+                      "{ CAUSA_BINDING_p, { .i = INT64_C(-5) } }, "
+                      "{ CAUSA_BINDING_m, { .b = false } } }, 3, CAUSA_BINDING_y, 4); /* line 5 */", c)
 
     def test_runtime_functions_are_declared_in_header(self) -> None:
         header = (RUNTIME_DIR / "causa_runtime.h").read_text(encoding="utf-8")

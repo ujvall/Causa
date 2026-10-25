@@ -24,6 +24,7 @@ explain total
 whatif price = 160
 whatif discount = 0.5 show total
 whatif tax = 1 show total          # int literal promoted: tax is a float input
+whatif price = 160, discount = 0.5 show total   # several overrides, applied together
 whatif units = 0                   # hypothetical division by zero is reported, not fatal
 
 # Forward, static: which bindings depend on a given binding?

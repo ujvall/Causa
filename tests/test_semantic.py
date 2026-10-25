@@ -54,10 +54,11 @@ class SymbolTableTests(Base):
         sem = check(lines("input t = 0.5", "let u = t * 2", "whatif t = 1 show u"))
         stmt = sem.program.statements[2]
         assert isinstance(stmt, WhatIfStmt)
-        self.assertEqual((stmt.value.type, stmt.value.value), (LiteralType.INT, 1))
-        override = sem.overrides[2]
-        self.assertIs(override.literal, stmt.value)
-        self.assertEqual((override.type, override.value, override.promoted), (FLOAT, 1.0, True))
+        clause = stmt.overrides[0]
+        self.assertEqual((clause.value.type, clause.value.value), (LiteralType.INT, 1))
+        (override,) = sem.overrides[2]
+        self.assertIs(override.literal, clause.value)
+        self.assertEqual((override.input, override.type, override.value, override.promoted), ("t", FLOAT, 1.0, True))
         self.assertIs(type(override.value), float)
 
     def test_expression_types_recorded(self) -> None:
@@ -146,14 +147,42 @@ class WhatIfTests(Base):
         sem = check(lines("input i = 1", "input f = 0.5", "input b = true",
                           "whatif i = 7", "whatif i = -7", "whatif f = 2.5", "whatif f = 3", "whatif f = -3",
                           "whatif b = false"))
-        got = [(o.type, o.value, o.promoted) for o in sem.overrides.values()]
+        got = [(o.type, o.value, o.promoted) for (o,) in sem.overrides.values()]
         self.assertEqual(got, [(INT, 7, False), (INT, -7, False), (FLOAT, 2.5, False),
                                (FLOAT, 3.0, True), (FLOAT, -3.0, True), (BOOL, False, False)])
         self.assertEqual(list(sem.overrides), [3, 4, 5, 6, 7, 8])
 
     def test_promotion_rounds_to_nearest_float(self) -> None:
         sem = check("input f = 0.5\nwhatif f = 9007199254740993\n")
-        self.assertEqual(sem.overrides[1].value, 9007199254740992.0)
+        self.assertEqual(sem.overrides[1][0].value, 9007199254740992.0)
+
+    def test_several_overrides(self) -> None:
+        sem = check(lines("input a = 1", "input f = 0.5", "input b = true", "let y = f * a",
+                          "whatif f = 2, a = 3, b = false show y"))
+        got = [(o.input, o.type, o.value, o.promoted) for o in sem.overrides[4]]
+        self.assertEqual(got, [("f", FLOAT, 2.0, True), ("a", INT, 3, False), ("b", BOOL, False, False)])
+
+    def test_several_overrides_errors(self) -> None:
+        cases = [  # each override is checked in source order, then the target
+            ("input a = 1\nwhatif a = 1, a = 2", "E305", 2, 15),
+            ("input a = 1\ninput b = 2\nwhatif a = 1, b = 2, a = 3", "E305", 3, 22),
+            ("input a = 1\nlet b = a\nwhatif a = 2, b = 3", "E303", 3, 15),
+            ("input a = 1\ninput f = 0.5\nwhatif a = 2, f = true", "E403", 3, 19),
+            ("input a = 1\ninput n = 5\nwhatif a = 2, n = 1.5", "E403", 3, 19),
+            ("input a = 1\nwhatif a = 2, z = 3", "E301", 2, 15),
+            ("input a = 1\nlet b = a\nwhatif a = 2.5, b = 3", "E403", 3, 12),  # first override first
+            ("input a = 1\nwhatif a = 2, a = true", "E305", 2, 15),  # E305 before E403 of the same override
+            ("input a = 1\ninput b = 2\ninput c = 3\nlet y = c * 2\nwhatif a = 1, b = 2 show y", "E304", 5, 26),
+            ("input a = 1\ninput b = 2\nwhatif a = 1, b = 2 show b", "E304", 3, 26),
+        ]
+        for source, code, line, column in cases:
+            with self.subTest(source=source):
+                self.assertError(source, code, line, column)
+
+    def test_target_needs_only_one_overridden_input(self) -> None:
+        # y depends on b only; overriding a as well is fine (union cone, LS §8.5.1).
+        check(lines("input a = 1", "input b = 2", "let y = b * 2", "whatif a = 5, b = 3 show y"))
+        check(lines("input a = 1", "input b = 2", "let y = b * 0", "whatif a = 5, b = 3 show y"))
 
     def test_override_errors(self) -> None:
         cases = [

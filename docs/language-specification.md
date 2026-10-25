@@ -1,6 +1,6 @@
 # CAUSA Language Specification — Version 1
 
-Status: **Phase 1 specification (draft for implementation), revision 2.** Nothing in this document is implemented yet. Where this document says "the compiler reports" or "the program prints", it describes required behavior for later phases, not existing behavior. Changes in revision 2 are recorded in [semantic-decisions.md](semantic-decisions.md) (revision log at the end).
+Status: **language version 1, specification revision 3** (revision 3, Phase 7: several overrides per `whatif`). This document is the contract the compiler and runtime implement; the [README](../README.md) records what is implemented and how it is tested. Changes in revisions 2 and 3 are recorded in [semantic-decisions.md](semantic-decisions.md) (revision log at the end).
 
 The formal grammar is in [grammar.ebnf](grammar.ebnf). Where this document and the grammar disagree, that is a specification bug and must be fixed in both.
 
@@ -102,9 +102,9 @@ Reserved words (no behavior in version 1; using them as names is a syntax error 
 
 ### 3.6 Operators and punctuation
 
-`+ - * / == != < <= > >= = ( )`
+`+ - * / == != < <= > >= = ( ) ,`
 
-Longest match applies (`<=` is one token). A lone `!` is an invalid character (E101). `%`, `//`, `**`, `,` and all other characters are invalid in version 1 (E101).
+Longest match applies (`<=` is one token). A lone `!` is an invalid character (E101). `%`, `//`, `**` and all other characters are invalid in version 1 (E101). The comma separates the overrides of a `whatif` (§8.5) and is valid nowhere else; elsewhere it is an unexpected token (E201). *(Revision 3: the comma was previously an invalid character, E101.)*
 
 ---
 
@@ -335,22 +335,26 @@ explain NAME
 ### 8.5 `whatif`
 
 ```
-whatif NAME = literal_value                  full form
-whatif NAME = literal_value show TARGET      targeted form
+whatif NAME = literal_value                                  full form
+whatif NAME = literal_value show TARGET                      targeted form
+whatif NAME1 = literal_value, NAME2 = literal_value, ...     several overrides (either form)
 ```
 
-Evaluates the program's visible bindings under a hypothetical value for one input, without affecting the program's own execution.
+Evaluates the program's visible bindings under hypothetical values for one or more inputs, without affecting the program's own execution. A statement contains one or more **overrides** separated by commas *(several overrides: revision 3)*. All of them are applied together before anything is re-evaluated.
 
 #### 8.5.1 Static checks
 
+The checks run override by override in source order, then on the target, so the first error in source order is reported (§9.2).
+
 | Check | Error |
 |---|---|
-| `NAME` is a visible binding | E301 at `NAME` |
-| `NAME` is an input, not a let | E303 at `NAME` |
-| the override is exactly one `literal_value`, followed by end of line or `show` | E203 at the first offending token |
-| the override's type is the input's type, or the override is an `int` literal and the input is `float` | E403 at the override value |
+| each `NAME` is a visible binding | E301 at `NAME` |
+| each `NAME` is an input, not a let | E303 at `NAME` |
+| no input is overridden twice in one statement (`whatif a = 1, a = 2`) | E305 at the repeated `NAME` |
+| each override is exactly one `literal_value`, followed by `,`, `show` or end of line | E203 at the first offending token |
+| each override's type is its input's type, or the override is an `int` literal and the input is `float` | E403 at the override value |
 | (targeted) `TARGET` is a visible binding | E301 at `TARGET` |
-| (targeted) `TARGET` is a let that transitively depends on `NAME` | E304 at `TARGET` |
+| (targeted) `TARGET` is a let that transitively depends on at least one overridden input | E304 at `TARGET` |
 
 **Override typing.** Permitted combinations:
 
@@ -366,13 +370,13 @@ Evaluates the program's visible bindings under a hypothetical value for one inpu
 
 The **override value** is the literal after any promotion. Promotion happens once, at compile time; it is not an operation in the dependency graph.
 
-**Target rule.** The target of a targeted `whatif` must be a visible `let` that depends, directly or transitively, on the overridden input — equivalently, a name listed under `all dependents` by `impact NAME` at the same position. A target that is an input (including `NAME` itself) or a let that does not depend on `NAME` is rejected with E304: its hypothetical value would always equal its base value, so the statement can only be a mistake, and the dependency graph decides this at compile time.
+**Target rule.** The target of a targeted `whatif` must be a visible `let` that depends, directly or transitively, on at least one overridden input — equivalently, a name listed under `all dependents` by `impact NAME` at the same position for at least one overridden `NAME`. A target that is an input (including an overridden one) or a let that depends on none of the overridden inputs is rejected with E304: its hypothetical value would always equal its base value, so the statement can only be a mistake, and the dependency graph decides this at compile time.
 
 #### 8.5.2 Evaluation
 
-Let *E* be the base environment at this statement, *V* the visible bindings, and *C* the **dependency cone** of `NAME`: the visible lets that transitively depend on `NAME`.
+Let *E* be the base environment at this statement, *V* the visible bindings, and *C* the **dependency cone** of the statement: the visible lets that transitively depend on at least one overridden input (the union of the overridden inputs' cones).
 
-1. Construct a fresh counterfactual environment *E′*: every visible binding outside *C* has its value from *E*; *E′*[NAME] := the override value.
+1. Construct a fresh counterfactual environment *E′*: every visible binding outside *C* has its value from *E*; for every override, *E′*[NAME] := its override value. All overrides are in place before step 2, so a let depending on several overridden inputs sees all of their hypothetical values.
 2. For each let *b* in *C*, in declaration order, determine its **hypothetical outcome**:
    * **unavailable** — if any direct dependency of *b* is *failed* or *unavailable*. *b* is not evaluated. Its **cause** is the earliest-declared failed binding among *b*'s transitive dependencies.
    * otherwise evaluate *b*'s expression under *E′* (strict, §6.5):
@@ -387,7 +391,7 @@ Because evaluation is pure, lets outside *C* have the same value in *E′* as in
 
 Both forms write only to stdout. Every line after the header is indented two spaces.
 
-**Header.** `whatif NAME = VALUE` (full form) or `whatif NAME = VALUE show TARGET` (targeted form), where `VALUE` is the formatted override value after promotion: `whatif tax = 1 show total` prints the header `whatif tax = 1.0 show total`.
+**Header.** `whatif NAME = VALUE` (full form) or `whatif NAME = VALUE show TARGET` (targeted form), where `VALUE` is the formatted override value after promotion: `whatif tax = 1 show total` prints the header `whatif tax = 1.0 show total`. With several overrides, the `NAME = VALUE` pairs appear in statement order separated by `, `: `whatif price = 160, discount = 0.5 show total`.
 
 **Outcome lines.** `NAME: BASE -> RESULT` where `BASE` is the value in *E* and `RESULT` is:
 
@@ -402,7 +406,7 @@ A value is *unchanged* if it is identical to the base value (same type and same 
 
 **Full form.** After the header:
 
-1. `  NAME: BASE -> VALUE  (override)`
+1. `  NAME: BASE -> VALUE  (override)` for each override, in statement order (an override equal to the base value is still marked `(override)`);
 2. one outcome line for every let in *C*, in declaration order, including unchanged ones; or `  (no dependent bindings)` if *C* is empty.
 
 **Targeted form.** After the header, exactly one outcome line, for `TARGET`. Outcomes of other bindings are not reported. Bindings that are neither `TARGET` nor among its transitive dependencies cannot affect the line; an implementation may skip evaluating them, and a failure in one of them is not observable.
@@ -414,7 +418,7 @@ A value is *unchanged* if it is identical to the base value (same type and same 
 * A hypothetical runtime error (a *failed* outcome) does not terminate the program, writes nothing to stderr, and does not change the exit status. Execution continues with the next statement.
 * Assertions are not re-checked under a `whatif` (§8.7).
 
-**Forward compatibility.** Version 1 accepts one override. The semantics above extend directly to several overrides (`whatif a = 1, b = 2`): all overrides are applied in step 1, *C* is the union of their cones, and a target must depend on at least one overridden input. No version 1 program's output would change.
+**Compatibility.** Several overrides were added in revision 3 exactly as revision 2 had pre-planned them: all overrides are applied in step 1, *C* is the union of their cones, and a target must depend on at least one overridden input. A statement with one override behaves, and prints, exactly as before.
 
 ### 8.6 `impact`
 
@@ -468,7 +472,7 @@ FILE:LINE:COLUMN: error[CODE]: MESSAGE
 
 Lines and columns are 1-based; columns count Unicode code points; a tab counts as one column. The **code and location are normative**; message wording is not. If any error is reported, no output program is produced. The compiler must report the first error in source order and may report additional errors.
 
-Error locations: E101 at the offending character; E102–E104 at the first character of the literal; syntax errors at the unexpected token (a `NEWLINE` token is located at the line terminator, i.e. the column after the line's last character); E301 at the name reference; E302 at the second declaration's name; E303 at the overridden name; E304 at the target name; E403 at the first token of the override value (its `-` if present); E401 at the operator token; E402 at the first token of the assertion expression.
+Error locations: E101 at the offending character; E102–E104 at the first character of the literal; syntax errors at the unexpected token (a `NEWLINE` token is located at the line terminator, i.e. the column after the line's last character); E301 at the name reference; E302 at the second declaration's name; E303 and E305 at the overridden name; E304 at the target name; E403 at the first token of the override value (its `-` if present); E401 at the operator token; E402 at the first token of the assertion expression.
 
 ### 9.3 Runtime diagnostics (base execution only)
 
@@ -499,17 +503,18 @@ The location is the `assert` keyword; `SOURCE` is the assertion expression as wr
 
 | Code | Phase | Condition |
 |---|---|---|
-| E101 | lexical | invalid character (includes non-ASCII outside comments, lone CR, `!`, `,`, `%`, `.` not in a float) |
+| E101 | lexical | invalid character (includes non-ASCII outside comments, lone CR, `!`, `%`, `.` not in a float) |
 | E102 | lexical | malformed numeric literal (leading zero, `1.`, missing exponent digits, literal followed by identifier character or `.`) |
 | E103 | lexical | integer literal exceeds 2^63 − 1 |
 | E104 | lexical | float literal rounds to infinity |
-| E201 | syntax | unexpected token (includes keyword/reserved word used as a name, two statements on one line, missing operand, unbalanced parentheses, `show`/`explain`/`impact` or a `whatif` target `show` followed by a non-name, anything after a `whatif` target) |
+| E201 | syntax | unexpected token (includes keyword/reserved word used as a name, two statements on one line, missing operand, unbalanced parentheses, `show`/`explain`/`impact` or a `whatif` target `show` followed by a non-name, anything after a `whatif` target, a `,` outside a `whatif`, a `,` not followed by an override) |
 | E202 | syntax | chained comparison |
-| E203 | syntax | `input` initializer is not exactly one `literal_value` followed by end of line; `whatif` override is not exactly one `literal_value` followed by end of line or `show` |
+| E203 | syntax | `input` initializer is not exactly one `literal_value` followed by end of line; a `whatif` override is not exactly one `literal_value` followed by `,`, `show` or end of line |
 | E301 | name | name not declared on an earlier line |
 | E302 | name | name already declared |
 | E303 | name | `whatif` override target is a `let`, not an input |
-| E304 | dependency | `whatif` report target is not a let that transitively depends on the overridden input |
+| E304 | dependency | `whatif` report target is not a let that transitively depends on at least one overridden input |
+| E305 | name | the same input is overridden more than once in one `whatif` (revision 3) |
 | E401 | type | operator applied to unsupported operand types |
 | E402 | type | `assert` condition is not `bool` |
 | E403 | type | `whatif` override type is incompatible with the input's type (§8.5.1) |
@@ -572,6 +577,7 @@ explain total
 whatif price = 160
 whatif discount = 0.5 show total
 whatif tax = 1 show total          # int literal promoted: tax is a float input
+whatif price = 160, discount = 0.5 show total   # several overrides, applied together
 whatif units = 0                   # hypothetical division by zero is reported, not fatal
 
 # Forward, static: which bindings depend on a given binding?
@@ -613,6 +619,8 @@ whatif discount = 0.5 show total
   total: 88.375 -> 60.25
 whatif tax = 1.0 show total
   total: 88.375 -> 154.0
+whatif price = 160, discount = 0.5 show total
+  total: 88.375 -> 94.0
 whatif units = 0
   units: 4 -> 0  (override)
   per_unit: 22.09375 -> error[R101] at 14:22 (division by zero)
@@ -635,6 +643,7 @@ Notes:
 * The tree lists `total`'s children in order of appearance (`subtotal`, `tax`, `fee`) while summary lists use declaration order (`tax`, `fee`, `subtotal`).
 * `expensive` depends on `price` but does not change (`(unchanged)`); `bulk` does change.
 * `whatif tax = 1` is accepted because `tax` is a `float` input; the header shows the promoted value `1.0`.
+* `whatif price = 160, discount = 0.5` applies both overrides before re-evaluating, so `total` uses both hypothetical values (savings 80.0, subtotal 80.0, total 94.0); neither override alone gives this result.
 * `whatif units = 0` fails hypothetically in `per_unit` (line 14, the `/` at column 22); `bulk` is unavailable. The program continues and exits with status 0.
 * Each `whatif` starts from the base environment, and the final `show` statements print base values, demonstrating isolation.
 * All values in this example are exactly representable in binary64.
@@ -654,7 +663,6 @@ The following are explicitly **not** part of version 1. Programs using them are 
 | Strings, collections | no syntax | |
 | Type annotations | `int`/`float`/`bool` reserved (E201) | literal-based inference retained (D02) |
 | `%`, `//`, `**`, math functions | E101 | `%` sign semantics differ between C and Python; deferred to avoid a trap |
-| Multiple overrides per `whatif` | `,` is E101 | semantics pre-planned in §8.5.4 |
 | Several targets per `whatif` | E201 after the first target | |
 | `whatif` on a `let` (intervening on an intermediate) | E303 | |
 | `explain` inside a counterfactual | not available | |

@@ -30,15 +30,17 @@ CAUSA tracks *computational* dependencies: how a program computes values from ot
 
 | Included | Deferred |
 |---|---|
-| `input`, `let`, `show`, `explain`, `whatif` (one override, optional `show` target), `impact`, `assert` | conditionals, loops, functions, recursion, mutation, runtime-supplied inputs |
+| `input`, `let`, `show`, `explain`, `whatif` (one or more overrides, optional `show` target), `impact`, `assert` | conditionals, loops, functions, recursion, mutation, runtime-supplied inputs |
 | types `int`, `float`, `bool`; arithmetic, comparison, boolean operators | strings, collections, type annotations, `%` `//` `**` |
-| static type checking, declaration-before-use | multiple overrides per `whatif`, launch-time input overrides |
+| static type checking, declaration-before-use | launch-time input overrides, several targets per `whatif` |
 
 Full list: [language-specification.md §13](docs/language-specification.md#13-deferred-features-not-in-version-1).
 
 ## Current phase
 
-**Phase 6 — runtime (implemented).** CAUSA programs now compile end to end: the compiler checks a `.cau` program, lowers it to Causal IR, optimizes it while preserving every source-level binding and dependency, and generates C. A C compiler then builds that C together with the CAUSA runtime library into an executable. Every statement of language version 1 runs (`show`, `explain`, `whatif` in both forms, `impact`, `assert`, and runtime errors R101–R103), and the output of every runtime case in [tests/specification-cases.md](tests/specification-cases.md) is checked byte for byte by automated tests.
+**Phase 7 — several overrides per `whatif` (implemented).** A hypothetical can now change several inputs at once, all applied together before anything is recomputed: `whatif price = 160, discount = 0.5 show total` ([language-specification §8.5](docs/language-specification.md), decision D24). A repeated input is rejected (E305), and a target must depend on at least one overridden input (E304). One-override statements behave and print exactly as before.
+
+**Phase 6 — runtime.** CAUSA programs compile end to end: the compiler checks a `.cau` program, lowers it to Causal IR, optimizes it while preserving every source-level binding and dependency, and generates C. A C compiler then builds that C together with the CAUSA runtime library into an executable. Every statement of language version 1 runs (`show`, `explain`, `whatif` in both forms, `impact`, `assert`, and runtime errors R101–R103), and the output of every runtime case in [tests/specification-cases.md](tests/specification-cases.md) is checked byte for byte by automated tests.
 
 This is a first implementation for a university compiler project, not a production system. It has been tested only with GCC on Windows (MSYS2 UCRT64), and it relies on the C library rounding `printf`/`strtod` correctly (see risk R1). The deferred language features of [language-specification §13](docs/language-specification.md#13-deferred-features-not-in-version-1) remain unsupported.
 

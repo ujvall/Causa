@@ -127,9 +127,16 @@ class ImpactStmt:
 
 
 @dataclass(frozen=True, slots=True)
-class WhatIfStmt:
+class OverrideClause:
+    """One `NAME = literal_value` of a whatif statement."""
     name: Name
     value: Literal  # as written; promotion is a semantic step
+    span: Span
+
+
+@dataclass(frozen=True, slots=True)
+class WhatIfStmt:
+    overrides: tuple[OverrideClause, ...]  # one or more, in statement order
     target: Name | None  # None for the full-report form
     span: Span
 
@@ -166,9 +173,10 @@ def dump(node: Program | Statement | Expr) -> str:
             return f"(explain {name.text})"
         case ImpactStmt(name):
             return f"(impact {name.text})"
-        case WhatIfStmt(name, value, target):
+        case WhatIfStmt(overrides, target):
+            pairs = ", ".join(f"{o.name.text} {dump(o.value)}" for o in overrides)
             suffix = f" show {target.text}" if target else ""
-            return f"(whatif {name.text} {dump(value)}{suffix})"
+            return f"(whatif {pairs}{suffix})"
         case AssertStmt(condition):
             return f"(assert {dump(condition)})"
         case Literal(LiteralType.BOOL, value):

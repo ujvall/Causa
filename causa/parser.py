@@ -12,7 +12,7 @@ from typing import Iterator
 
 from .astnodes import (
     AssertStmt, BinaryOp, BinaryOperator, ExplainStmt, Expr, ImpactStmt, InputDecl,
-    LetDecl, Literal, LiteralType, Name, NameRef, Program, ShowStmt, Span, Statement,
+    LetDecl, Literal, LiteralType, Name, NameRef, OverrideClause, Program, ShowStmt, Span, Statement,
     UnaryOp, UnaryOperator, WhatIfStmt,
 )
 from .diagnostics import CausaError
@@ -138,18 +138,26 @@ class Parser:
         return LetDecl(name, value, source_text, _span(keyword, self._previous))
 
     def _whatif_stmt(self) -> WhatIfStmt:
+        """whatif_stmt = "whatif" override { "," override } [ "show" IDENT ]"""
         keyword = self._advance()
-        name = self._name()
-        self._expect(K.ASSIGN, "'=' after the input name")
-        value = self._literal_value("a whatif override")
+        overrides = [self._override()]
+        while self._at(K.COMMA):
+            self._advance()
+            overrides.append(self._override())
         target: Name | None = None
         if self._at(K.SHOW):
             self._advance()
             target = self._name()
         elif not self._at(K.NEWLINE):
             raise self._error(
-                "E203", "a whatif override must be a single literal, optionally followed by 'show NAME'")
-        return WhatIfStmt(name, value, target, _span(keyword, self._previous))
+                "E203", "a whatif override must be a single literal, followed by ',', 'show NAME' or end of line")
+        return WhatIfStmt(tuple(overrides), target, _span(keyword, self._previous))
+
+    def _override(self) -> OverrideClause:
+        name = self._name()
+        self._expect(K.ASSIGN, "'=' after the input name")
+        value = self._literal_value("a whatif override")
+        return OverrideClause(name, value, name.span.cover(value.span))
 
     def _assert_stmt(self) -> AssertStmt:
         keyword = self._advance()

@@ -38,7 +38,8 @@ def err(text: str) -> str:
 
 DIV0 = "error[R101] at 2:12 (division by zero)"
 H01_REPORT = f"whatif d = 0 / ··d: 2 -> 0  (override) / ··q: 5.0 -> {DIV0}"
-NONE4 = "··direct dependencies: (none) / ··transitive dependencies: (none) / ··inputs: (none) / ··intermediates: (none)"
+M01_REPORT = "whatif a = 10, b = 20 / ··a: 1 -> 10  (override) / ··b: 2 -> 20  (override) / ··s: 3 -> 30"
+NONE4 ="··direct dependencies: (none) / ··transitive dependencies: (none) / ··inputs: (none) / ··intermediates: (none)"
 
 # case ID -> (stdout, stderr, exit status), transcribed from tests/specification-cases.md
 EXPECTED: dict[str, tuple[str, str, int]] = {
@@ -117,6 +118,20 @@ EXPECTED: dict[str, tuple[str, str, int]] = {
     "T06": (out(f"whatif d = 0 show q / ··q: 5.0 -> {DIV0}"), "", 0),
     "T07": (out("whatif d = 0 show w / ··w: 3 -> 1"), "", 0),
     "T08": (out("whatif d = 1.0 show h / ··h: 0.5 -> 2.0"), "", 0),
+    # §6b several overrides (revision 3)
+    "M01": (out(M01_REPORT), "", 0),
+    "M02": (out("whatif b = 5, a = 3 / ··b: 2 -> 5  (override) / ··a: 1 -> 3  (override) / ··x: 2 -> 6 / "
+                "··y: 4 -> 10 / ··z: 6 -> 16"), "", 0),
+    "M03": (out("whatif a = 5, b = 3 show y / ··y: 4 -> 6"), "", 0),
+    "M04": (out("whatif f = 2.0, i = 3 / ··f: 0.5 -> 2.0  (override) / ··i: 1 -> 3  (override) / ··r: 0.5 -> 6.0"),
+            "", 0),
+    "M05": (out("whatif d = 0, k = 5 / ··d: 2 -> 0  (override) / ··k: 1 -> 5  (override) / "
+                "··q: 5.0 -> error[R101] at 3:12 (division by zero) / ··r: 5.0 -> unavailable (depends on q) / "
+                "··w: 0 -> 0  (unchanged)"), "", 0),
+    "M06": (out(f"{M01_REPORT} / whatif b = 7 / ··b: 2 -> 7  (override) / ··s: 3 -> 8 / s = 3"), "", 0),
+    "M07": (out("whatif a = 1, b = 2 / ··a: 1 -> 1  (override) / ··b: 2 -> 2  (override) / ··(no dependent bindings)"),
+            "", 0),
+    "M20": (out("whatif x = 7, y = 9 show z / ··z: 0 -> 0  (unchanged)"), "", 0),
     "I01": (out("impact a / ··direct dependents: (none) / ··all dependents: (none)"), "", 0),
     "I02": (out("impact x / ··direct dependents: a / ··all dependents: a"), "", 0),
     "I03": (out("impact x / ··direct dependents: z / ··all dependents: z"), "", 0),
@@ -373,10 +388,15 @@ int main(void)
         if (causa_eval_node(CAUSA_PROGRAM.nodes[i].id, env, &err)) return 9;
     report("EVAL-base"); /* validates the instrumentation itself */
     memcpy(before, env, sizeof env);
-    causa_whatif(env, CAUSA_BINDING_a, (causa_value){ .i = 2 }, CAUSA_NO_TARGET, CAUSA_PROGRAM.binding_count);
+    causa_whatif(env, (const causa_override[]){ { CAUSA_BINDING_a, { .i = 2 } } }, 1, CAUSA_NO_TARGET,
+                 CAUSA_PROGRAM.binding_count);
     report("EVAL-a");
-    causa_whatif(env, CAUSA_BINDING_d, (causa_value){ .i = 0 }, CAUSA_NO_TARGET, CAUSA_PROGRAM.binding_count);
+    causa_whatif(env, (const causa_override[]){ { CAUSA_BINDING_d, { .i = 0 } } }, 1, CAUSA_NO_TARGET,
+                 CAUSA_PROGRAM.binding_count);
     report("EVAL-d");
+    causa_whatif(env, (const causa_override[]){ { CAUSA_BINDING_d, { .i = 5 } }, { CAUSA_BINDING_a, { .i = 4 } } },
+                 2, CAUSA_NO_TARGET, CAUSA_PROGRAM.binding_count);
+    report("EVAL-da");
     printf("BASE %s\n", memcmp(before, env, sizeof env) == 0 ? "unchanged" : "CHANGED");
     return 0;
 }
@@ -416,6 +436,13 @@ int main(void)
         self.assertEqual(eval_d, [i for i in q_nodes if i != q_bind])
         self.assertNotIn(q_bind, eval_d)
         self.assertIn("  q: 5.0 -> error[R101] at 5:12 (division by zero)", lines)
+        # whatif d = 5, a = 4 (revision 3): the union cone b, q, e is re-evaluated, each node once; c is reused.
+        self.assertEqual(evaluated("EVAL-da"), sorted(i for i in owned["b"] + owned["q"] + owned["e"]
+                                                      if i in optimized_ids))
+        self.assertIn("whatif d = 5, a = 4", lines)
+        self.assertEqual(lines[lines.index("whatif d = 5, a = 4") + 1:lines.index("whatif d = 5, a = 4") + 6],
+                         ["  d: 2 -> 5  (override)", "  a: 1 -> 4  (override)", "  b: 2 -> 8", "  q: 5.0 -> 2.0",
+                          "  e: 9 -> 15"])
         self.assertIn("BASE unchanged", lines)
 
 
@@ -483,34 +510,52 @@ int main(void)
     causa_init();
     for (i = 0; i < CAUSA_PROGRAM.node_count; i++)
         if (causa_eval_node(CAUSA_PROGRAM.nodes[i].id, env, &err)) return 9;
-    causa_whatif(env, INPUT, (causa_value){ .i = 5 }, TARGET, VISIBLE);
+    causa_whatif(env, OVERRIDES, COUNT, TARGET, VISIBLE);
     return 0;
 }
 """
 
-    def run_request(self, input_binding: str, target: str, visible: str) -> subprocess.CompletedProcess:
+    @staticmethod
+    def overrides(*items: str) -> str:
+        """C compound literal for overrides written as "name=int", e.g. overrides("x=5", "k=7")."""
+        pairs = ", ".join(f"{{ CAUSA_BINDING_{name}, {{ .i = {value} }} }}"
+                          for name, value in (item.split("=") for item in items))
+        return f"(const causa_override[]){{ {pairs} }}"
+
+    def run_request(self, overrides: str, count: str, target: str, visible: str) -> subprocess.CompletedProcess:
         c = compile_to_c("input x = 1\ninput k = 3\nlet y = x + 1\nwhatif x = 2\n", "F").source
-        main = (self.HARNESS.replace("INPUT", input_binding).replace("TARGET", target)
+        main = (self.HARNESS.replace("OVERRIDES", overrides).replace("COUNT", count).replace("TARGET", target)
                 .replace("VISIBLE", visible))
         return build_and_run({"prog.c": c, "h.c": main}, "h.c")
 
     def test_invalid_requests(self) -> None:
+        x5 = self.overrides("x=5")
+        no_dependency = "whatif target does not depend on an overridden input"
         cases = [
-            ("CAUSA_BINDING_x", "-5", "3", "invalid whatif request"),
-            ("CAUSA_BINDING_x", "CAUSA_BINDING_k", "3", "whatif target does not depend on the input"),
-            ("CAUSA_BINDING_x", "CAUSA_BINDING_y", "2", "invalid whatif request"),  # target not visible
-            ("CAUSA_BINDING_k", "CAUSA_NO_TARGET", "1", "invalid whatif request"),  # input not visible
-            ("CAUSA_BINDING_y", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # not an input
+            (x5, "1", "-5", "3", "invalid whatif request"),
+            (x5, "1", "CAUSA_BINDING_k", "3", no_dependency),
+            (x5, "1", "CAUSA_BINDING_y", "2", "invalid whatif request"),  # target not visible
+            (self.overrides("k=5"), "1", "CAUSA_NO_TARGET", "1", "invalid whatif request"),  # input not visible
+            (self.overrides("y=5"), "1", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # not an input
+            # several overrides (revision 3)
+            (self.overrides("x=5", "x=6"), "2", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # repeated
+            (self.overrides("x=5", "y=6"), "2", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # a let
+            (self.overrides("x=5", "k=7"), "0", "CAUSA_NO_TARGET", "3", "invalid whatif request"),  # no overrides
+            ("NULL", "1", "CAUSA_NO_TARGET", "3", "invalid whatif request"),
+            (self.overrides("k=7"), "1", "CAUSA_BINDING_y", "3", no_dependency),
         ]
-        for input_binding, target, visible, message in cases:
-            with self.subTest(input=input_binding, target=target, visible=visible):
-                run = self.run_request(input_binding, target, visible)
+        for overrides, count, target, visible, message in cases:
+            with self.subTest(overrides=overrides, count=count, target=target, visible=visible):
+                run = self.run_request(overrides, count, target, visible)
                 self.assertEqual((run.returncode, run.stdout, run.stderr),
                                  (2, "", f"F: internal error: {message}\n"))
 
     def test_valid_requests_still_work(self) -> None:
-        run = self.run_request("CAUSA_BINDING_x", "CAUSA_BINDING_y", "3")
+        run = self.run_request(self.overrides("x=5"), "1", "CAUSA_BINDING_y", "3")
         self.assertEqual((run.returncode, run.stdout, run.stderr), (0, "whatif x = 5 show y\n  y: 2 -> 6\n", ""))
+        run = self.run_request(self.overrides("k=7", "x=5"), "2", "CAUSA_NO_TARGET", "3")
+        self.assertEqual((run.returncode, run.stdout, run.stderr),
+                         (0, "whatif k = 7, x = 5\n  k: 3 -> 7  (override)\n  x: 1 -> 5  (override)\n  y: 2 -> 6\n", ""))
 
 
 @unittest.skipUnless(CC and sys.platform == "win32",

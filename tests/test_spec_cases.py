@@ -117,6 +117,27 @@ CASES: dict[str, tuple[str, object]] = {
     "T18": ("input x = 1⏎let y = x⏎whatif x = 1 + 1 show y", ("E203", 3, 14)),
     "T19": ("input x = 1⏎let y = x⏎whatif x = 5 show let", ("E201", 3, 19)),
     "T20": ("input x = 1⏎let y = x⏎whatif x = 5 explain y", ("E203", 3, 14)),
+    # §6b several overrides (revision 3)
+    "M01": ("input a = 1⏎input b = 2⏎let s = a + b⏎whatif a = 10, b = 20", OK),
+    "M02": ("input a = 1⏎input b = 2⏎let x = a * 2⏎let y = b * 2⏎let z = x + y⏎whatif b = 5, a = 3", OK),
+    "M03": ("input a = 1⏎input b = 2⏎let y = b * 2⏎whatif a = 5, b = 3 show y", OK),
+    "M04": ("input f = 0.5⏎input i = 1⏎let r = f * i⏎whatif f = 2, i = 3", OK),
+    "M05": ("input d = 2⏎input k = 1⏎let q = 10 / d⏎let r = q * k⏎let w = k * 0⏎whatif d = 0, k = 5", OK),
+    "M06": ("input a = 1⏎input b = 2⏎let s = a + b⏎whatif a = 10, b = 20⏎whatif b = 7⏎show s", OK),
+    "M07": ("input a = 1⏎input b = 2⏎whatif a = 1, b = 2", OK),
+    "M08": ("input a = 1⏎whatif a = 1, a = 2", sem("E305")),
+    "M09": ("input a = 1⏎input b = 2⏎input c = 3⏎let y = c * 2⏎whatif a = 1, b = 2 show y", sem("E304")),
+    "M10": ("input a = 1⏎let b = a⏎whatif a = 2, b = 3", sem("E303")),
+    "M11": ("input a = 1⏎input f = 0.5⏎whatif a = 2, f = true", sem("E403")),
+    "M12": ("input a = 1⏎whatif a = 2, z = 3", sem("E301")),
+    "M13": ("input a = 1⏎whatif a = 2,", ("E201", 2, 14)),
+    "M14": ("input a = 1⏎input b = 2⏎whatif a = 2, show b", ("E201", 3, 15)),
+    "M15": ("input a = 1⏎input b = 2⏎whatif a = 2 b = 3", ("E203", 3, 14)),
+    "M16": ("let x = 1, 2", ("E201", 1, 10)),
+    "M17": ("input a = 1, b = 2", ("E203", 1, 12)),
+    "M18": ("input x = 1⏎show x, x", ("E201", 2, 7)),
+    "M19": ("input a = 1⏎let b = a⏎whatif a = 2.5, b = 3", sem("E403")),
+    "M20": ("input x = 3⏎input y = 4⏎let z = x * 0 + y * 0⏎whatif x = 7, y = 9 show z", OK),
     # §7 impact
     "I01": ("input a = 1⏎impact a", OK),
     "I02": ("input x = 1⏎let a = x⏎impact x⏎let b = x", OK),
@@ -158,7 +179,6 @@ CASES: dict[str, tuple[str, object]] = {
     "E33": ("let x = 1 % 2", ("E101", 1, 11)),
     "E34": ("let x = .5", ("E101", 1, 9)),
     "E35": ("let café = 1", ("E101", 1, 8)),
-    "E36": ("input a = 1⏎input b = 2⏎whatif a = 1, b = 2", ("E101", 3, 13)),
     "E37": ("let x = 007", ("E102", 1, 9)),
     "E38": ("let x = 1.", ("E102", 1, 9)),
     "E39": ("let x = 123abc", ("E102", 1, 9)),
@@ -194,7 +214,7 @@ FILE_CASES = {
 }
 
 # Withdrawn in revision 2 (see specification-cases.md); IR cases need Phase 3+.
-NOT_APPLICABLE = {"E14", "E15", "R10"}
+NOT_APPLICABLE = {"E14", "E15", "R10", "E36"}  # E36: moved to M07 in revision 3
 
 
 # Locations of semantic errors, from specification-cases.md (checked from Phase 3).
@@ -209,6 +229,8 @@ SEMANTIC_ERRORS: dict[str, tuple[str, int, int]] = {
     "E10": ("E401", 1, 14), "E11": ("E401", 1, 14), "E12": ("E401", 1, 9),
     "E13": ("E402", 1, 8), "E16": ("E303", 3, 8), "E17": ("E301", 1, 8),
     "E30": ("E301", 1, 9),
+    "M08": ("E305", 2, 15), "M09": ("E304", 5, 26), "M10": ("E303", 3, 15),
+    "M11": ("E403", 3, 19), "M12": ("E301", 2, 15), "M19": ("E403", 3, 12),
 }
 FILE_SEMANTIC_ERRORS = {"E43": ("E401", 8, 19)}
 
@@ -276,7 +298,7 @@ class SpecificationCaseTests(unittest.TestCase):
 
     def test_every_specification_case_is_accounted_for(self) -> None:
         doc = (ROOT / "tests" / "specification-cases.md").read_text(encoding="utf-8")
-        ids = set(re.findall(r"^\| ([VXWPHTIER]\d\d) \|", doc, re.MULTILINE))
+        ids = set(re.findall(r"^\| ([VXWPHTIERM]\d\d) \|", doc, re.MULTILINE))
         covered = set(CASES) | set(FILE_CASES) | NOT_APPLICABLE
         self.assertEqual(ids - covered, set(), "specification cases missing from this table")
         self.assertEqual(covered - ids, set(), "table lists cases not in the specification")

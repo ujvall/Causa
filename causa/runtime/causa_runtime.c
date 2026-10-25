@@ -275,34 +275,38 @@ void causa_explain(const causa_value *env, int binding)
 
 /* ---- impact (§8.6) ------------------------------------------------------ */
 
-/* Visible lets depending on `binding`: dependents always follow it in
-   declaration order, so one forward sweep finds the transitive set. */
-static void causa_cone(int binding, int visible, unsigned char *cone)
+/* Visible lets depending on at least one binding flagged in `seed`: a binding's
+   dependencies always precede it in declaration order, so one forward sweep
+   finds the transitive set (the union of the seeds' cones). */
+static void causa_cone(const unsigned char *seed, int visible, unsigned char *cone)
 {
     int i, j;
-    for (i = binding + 1; i < visible && i < P.binding_count; i++)
+    for (i = 0; i < visible && i < P.binding_count; i++)
         for (j = 0; j < P.bindings[i].dep_count; j++) {
             int d = P.bindings[i].deps[j];
-            if (d == binding || cone[d]) { cone[i] = 1; break; }
+            if (seed[d] || cone[d]) { cone[i] = 1; break; }
         }
 }
 
 void causa_impact(const causa_value *env, int binding, int visible)
 {
     const causa_binding_info *b;
-    unsigned char *direct, *all;
+    unsigned char *seed, *direct, *all;
     int j;
     (void)env; /* impact is purely structural: no values are read */
     causa_check_binding(binding);
     b = &P.bindings[binding];
+    seed = causa_alloc((size_t)P.binding_count, 1);
     direct = causa_alloc((size_t)P.binding_count, 1);
     all = causa_alloc((size_t)P.binding_count, 1);
     for (j = 0; j < b->dependent_count; j++)
         if (b->dependents[j] < visible) direct[b->dependents[j]] = 1;
-    causa_cone(binding, visible, all);
+    seed[binding] = 1;
+    causa_cone(seed, visible, all);
     printf("impact %s\n", b->name);
     causa_print_list("direct dependents", direct);
     causa_print_list("all dependents", all);
+    free(seed);
     free(direct); free(all);
 }
 
@@ -333,35 +337,42 @@ static void causa_outcome_line(int i, const causa_value *env, const causa_value 
                causa_same_value(b->type, env[b->anchor], cf[b->anchor]) ? "  (unchanged)" : "");
 }
 
-void causa_whatif(const causa_value *env, int input_binding, causa_value value, int target_binding,
-                  int visible)
+void causa_whatif(const causa_value *env, const causa_override *overrides, int override_count,
+                  int target_binding, int visible)
 {
-    const causa_binding_info *in;
     causa_value *cf;
-    unsigned char *cone;
+    unsigned char *seed, *cone;
     int *state, *cause, i, j, k, any = 0;
     causa_error *errors;
     char v[CAUSA_VALUE_BUFSIZE], base[CAUSA_VALUE_BUFSIZE];
 
-    causa_check_binding(input_binding);
-    in = &P.bindings[input_binding];
-    /* The input is declared before the statement, so it is visible; the target is
-       CAUSA_NO_TARGET or a visible binding. All checks happen before any output. */
-    if (in->kind != CAUSA_KIND_INPUT || visible > P.binding_count || input_binding >= visible ||
+    /* Validate the whole request before any output. Every input is declared
+       before the statement, so it is visible, and is overridden at most once;
+       the target is CAUSA_NO_TARGET or a visible binding. */
+    causa_check_program();
+    if (!overrides || override_count < 1 || visible > P.binding_count ||
         target_binding < CAUSA_NO_TARGET || target_binding >= visible)
         causa_internal("invalid whatif request");
+    seed = causa_alloc((size_t)P.binding_count, 1);
+    for (k = 0; k < override_count; k++) {
+        int input = overrides[k].input;
+        if (input < 0 || input >= visible || P.bindings[input].kind != CAUSA_KIND_INPUT || seed[input])
+            causa_internal("invalid whatif request");
+        seed[input] = 1;
+    }
+    cone = causa_alloc((size_t)P.binding_count, 1);
+    causa_cone(seed, visible, cone);
+    if (target_binding >= 0 && !cone[target_binding]) /* the E304 rule */
+        causa_internal("whatif target does not depend on an overridden input");
 
-    /* A fresh counterfactual environment: the base environment is never written. */
+    /* A fresh counterfactual environment with every override applied before any
+       re-evaluation: the base environment is never written. */
     cf = causa_alloc((size_t)P.node_slots, sizeof *cf);
     memcpy(cf, env, (size_t)P.node_slots * sizeof *cf);
-    cf[in->anchor] = value;
-    cone = causa_alloc((size_t)P.binding_count, 1);
+    for (k = 0; k < override_count; k++) cf[P.bindings[overrides[k].input].anchor] = overrides[k].value;
     state = causa_alloc((size_t)P.binding_count, sizeof *state);
     cause = causa_alloc((size_t)P.binding_count, sizeof *cause);
     errors = causa_alloc((size_t)P.binding_count, sizeof *errors);
-    causa_cone(input_binding, visible, cone);
-    if (target_binding >= 0 && !cone[target_binding]) /* the E304 rule, before any output */
-        causa_internal("whatif target does not depend on the input");
 
     for (i = 0; i < P.binding_count; i++) {
         const causa_binding_info *b = &P.bindings[i];
@@ -389,13 +400,23 @@ void causa_whatif(const causa_value *env, int input_binding, causa_value value, 
         }
     }
 
-    causa_format_value(in->type, value, v, sizeof v);
-    printf("whatif %s = %s", in->name, v);
+    printf("whatif "); /* header: the overrides in statement order */
+    for (k = 0; k < override_count; k++) {
+        const causa_binding_info *in = &P.bindings[overrides[k].input];
+        causa_format_value(in->type, overrides[k].value, v, sizeof v);
+        printf("%s%s = %s", k ? ", " : "", in->name, v);
+    }
     if (target_binding >= 0) {
         printf(" show %s\n", P.bindings[target_binding].name);
         causa_outcome_line(target_binding, env, cf, state, errors, cause);
     } else {
-        printf("\n  %s: %s -> %s  (override)\n", in->name, causa_value_text(input_binding, env, base), v);
+        printf("\n");
+        for (k = 0; k < override_count; k++) { /* one (override) line each, statement order */
+            int input = overrides[k].input;
+            const causa_binding_info *in = &P.bindings[input];
+            causa_format_value(in->type, overrides[k].value, v, sizeof v);
+            printf("  %s: %s -> %s  (override)\n", in->name, causa_value_text(input, env, base), v);
+        }
         for (i = 0; i < P.binding_count; i++)
             if (cone[i]) {
                 causa_outcome_line(i, env, cf, state, errors, cause);
@@ -403,7 +424,7 @@ void causa_whatif(const causa_value *env, int input_binding, causa_value value, 
             }
         if (!any) printf("  (no dependent bindings)\n");
     }
-    free(cf); free(cone); free(state); free(cause); free(errors);
+    free(seed); free(cf); free(cone); free(state); free(cause); free(errors);
 }
 
 /* ---- assert (§8.7, §9.3) ------------------------------------------------ */

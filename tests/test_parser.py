@@ -5,7 +5,7 @@ from pathlib import Path
 
 from causa.astnodes import (
     AssertStmt, BinaryOp, BinaryOperator, ExplainStmt, ImpactStmt, InputDecl, LetDecl,
-    Literal, LiteralType, Name, NameRef, ShowStmt, Span, UnaryOp, UnaryOperator,
+    Literal, LiteralType, Name, NameRef, OverrideClause, ShowStmt, Span, UnaryOp, UnaryOperator,
     WhatIfStmt, dump,
 )
 from causa.diagnostics import CausaError
@@ -146,8 +146,10 @@ class StatementStructureTests(unittest.TestCase):
     def test_whatif_full_form(self) -> None:
         (stmt,) = parse("whatif price = 160\n").statements
         assert isinstance(stmt, WhatIfStmt)
-        self.assertEqual(stmt.name.text, "price")
-        self.assertEqual(stmt.value, Literal(LiteralType.INT, 160, Span(1, 16, 1, 19)))
+        (override,) = stmt.overrides
+        self.assertEqual(override, OverrideClause(Name("price", Span(1, 8, 1, 13)),
+                                                  Literal(LiteralType.INT, 160, Span(1, 16, 1, 19)),
+                                                  Span(1, 8, 1, 19)))
         self.assertIsNone(stmt.target)
         self.assertEqual(stmt.span, Span(1, 1, 1, 19))
 
@@ -155,10 +157,21 @@ class StatementStructureTests(unittest.TestCase):
         (stmt,) = parse("whatif tax = 1 show total\n").statements
         assert isinstance(stmt, WhatIfStmt)
         # The literal is kept as written; int-to-float promotion is semantic (D15).
-        self.assertEqual(stmt.value.type, LiteralType.INT)
+        self.assertEqual(stmt.overrides[0].value.type, LiteralType.INT)
         self.assertEqual(stmt.target, Name("total", Span(1, 21, 1, 26)))
         self.assertEqual(stmt.span, Span(1, 1, 1, 26))
         self.assertEqual(dump(stmt), "(whatif tax 1 show total)")
+
+    def test_whatif_several_overrides(self) -> None:
+        (stmt,) = parse("whatif a = 1, b = -2.5, c = true show t\n").statements
+        assert isinstance(stmt, WhatIfStmt)
+        self.assertEqual([(o.name.text, o.value.type, o.value.value) for o in stmt.overrides],
+                         [("a", LiteralType.INT, 1), ("b", LiteralType.FLOAT, -2.5), ("c", LiteralType.BOOL, True)])
+        self.assertEqual([o.span for o in stmt.overrides],
+                         [Span(1, 8, 1, 13), Span(1, 15, 1, 23), Span(1, 25, 1, 33)])
+        self.assertEqual(stmt.target, Name("t", Span(1, 39, 1, 40)))
+        self.assertEqual(dump(stmt), "(whatif a 1, b -2.5, c true show t)")
+        self.assertEqual(dump(parse("whatif a = 1, b = 2")), "(whatif a 1, b 2)")
 
     def test_whatif_negative_and_bool_values(self) -> None:
         self.assertEqual(dump(parse("whatif t = -1")), "(whatif t -1)")
@@ -231,6 +244,19 @@ class SyntaxErrorTests(unittest.TestCase):
         ("whatif x = 5 show let", "E201", 1, 19),
         ("whatif x = 5 show 3", "E201", 1, 19),
         ("whatif x = 5 show y show z", "E201", 1, 21),
+        # commas (revision 3): valid only between whatif overrides
+        ("whatif a = 1,", "E201", 1, 14),
+        ("whatif a = 1, show y", "E201", 1, 15),
+        ("whatif a = 1,, b = 2", "E201", 1, 14),
+        ("whatif a = 1 b = 2", "E203", 1, 14),
+        ("whatif a = 1, b = 2 + 1", "E203", 1, 21),
+        ("whatif a = 1, b = x", "E203", 1, 19),
+        ("whatif a = 1, b = 2 show y, z", "E201", 1, 27),
+        ("whatif , a = 1", "E201", 1, 8),
+        ("let x = 1, 2", "E201", 1, 10),
+        ("input a = 1, b = 2", "E203", 1, 12),
+        ("show x, y", "E201", 1, 7),
+        ("let x = (1, 2)", "E201", 1, 11),
     ]
 
     def test_cases(self) -> None:
@@ -267,6 +293,8 @@ class SemanticErrorsAreNotSyntaxErrorsTests(unittest.TestCase):
         "input a = 1\nlet b = a\nwhatif b = 2",  # E303
         "input x = 1\ninput k = 2\nlet y = k * 2\nwhatif x = 5 show y",  # E304
         "input x = 1\nwhatif x = 5 show x",  # E304
+        "input a = 1\nwhatif a = 1, a = 2",  # E305
+        "input a = 1\ninput b = 2\ninput c = 3\nlet y = c\nwhatif a = 1, b = 2 show y",  # E304
         "let x = 1 + true",  # E401
         "let x = -true",  # E401
         "assert 1",  # E402
@@ -288,12 +316,13 @@ class ExampleFileTests(unittest.TestCase):
 
     def test_pricing(self) -> None:
         program = parse_file(EXAMPLES / "pricing.cau")
-        self.assertEqual(len(program.statements), 23)
+        self.assertEqual(len(program.statements), 24)
         lines = dump(program).splitlines()
         self.assertIn("(let total (+ (* subtotal (+ 1 tax)) fee))", lines)
         self.assertIn("(whatif discount 0.5 show total)", lines)
         self.assertIn("(whatif tax 1 show total)", lines)
         self.assertIn("(whatif units 0)", lines)
+        self.assertIn("(whatif price 160, discount 0.5 show total)", lines)
         per_unit = program.statements[9]
         assert isinstance(per_unit, LetDecl)
         self.assertEqual(per_unit.name.text, "per_unit")

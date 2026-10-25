@@ -47,10 +47,18 @@ class TokenStructureTests(unittest.TestCase):
 
     def test_every_operator(self) -> None:
         self.assertEqual(
-            kinds("== != <= >= < > + - * / = ( )")[:-2],
+            kinds("== != <= >= < > + - * / = ( ) ,")[:-2],
             [K.EQ, K.NE, K.LE, K.GE, K.LT, K.GT, K.PLUS, K.MINUS, K.STAR, K.SLASH,
-             K.ASSIGN, K.LPAREN, K.RPAREN],
+             K.ASSIGN, K.LPAREN, K.RPAREN, K.COMMA],
         )
+
+    def test_comma_token(self) -> None:
+        # Revision 3: the comma is a token (it separates whatif overrides); before, it was E101.
+        toks = tokenize("whatif a = 1, b = 2")
+        self.assertEqual([(t.kind, t.column) for t in toks[:-2]],
+                         [(K.WHATIF, 1), (K.IDENT, 8), (K.ASSIGN, 10), (K.INT, 12), (K.COMMA, 13),
+                          (K.IDENT, 15), (K.ASSIGN, 17), (K.INT, 19)])
+        self.assertEqual(kinds("a,b")[:-2], [K.IDENT, K.COMMA, K.IDENT])
 
     def test_longest_match_without_spaces(self) -> None:
         self.assertEqual(kinds("a==b<=c")[:-2], [K.IDENT, K.EQ, K.IDENT, K.LE, K.IDENT])
@@ -139,7 +147,6 @@ class LexicalErrorTests(unittest.TestCase):
         ("let x = .5", "E101", 1, 9),
         ("let café = 1", "E101", 1, 8),
         ("input x: float = 1", "E101", 1, 8),
-        ("whatif a = 1, b = 2", "E101", 1, 13),
         ("let x = 1 ^ 2", "E101", 1, 11),
         ("let x = 1 ** 2", "E101", 1, 11),
         ("let x = 7 // 2", "E101", 1, 11),

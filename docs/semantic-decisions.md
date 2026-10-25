@@ -146,6 +146,13 @@ Each entry: **Decision** (chosen behavior), **Rationale**, **Alternatives** cons
 * **Rationale:** Tests assert on codes and locations, not prose.
 * **Implications:** Test cases reference codes (tests/specification-cases.md).
 
+
+### D24 — Several overrides per `whatif` *(new in revision 3, Phase 7)*
+* **Decision:** `whatif a = 1, b = 2 [show T]` applies every override to one counterfactual environment before re-evaluation. The dependency cone is the union of the overridden inputs' cones, and a target must depend on at least one overridden input (E304 otherwise). The header lists the overrides in statement order (`whatif a = 1, b = 2`). The full report prints one `(override)` line per override in statement order, then the cone in declaration order. Overriding the same input twice in one statement is error **E305**, at the repeated name. The comma becomes a token that is valid only between overrides; elsewhere it is E201 (previously every comma was E101). Static checks run override by override in source order (E301, E303, E305, E403), then on the target.
+* **Rationale:** This was the only deferred feature whose semantics revision 2 had already fixed (LS §8.5.4 forward-compatibility note and the grammar's reserved `{ "," , override }`). It strengthens CAUSA's central capability, counterfactual evaluation, without a new semantic model. Statement order for the header and override lines echoes what the user wrote. Rejecting a repeated input (instead of "last one wins") avoids a silently ignored override.
+* **Alternatives:** override lines in declaration order; "last override wins" for a repeated input; keeping `,` as E101 outside `whatif` (would need a context-sensitive lexer).
+* **Implications:** The AST's `WhatIfStmt` holds a tuple of overrides. `SemanticProgram.overrides` maps a statement to a tuple. The IR `WhatIf` action holds a tuple of `OverrideValue`s. The runtime call becomes `causa_whatif(env, overrides, count, target, visible)` with `causa_override { input, value }`. A one-override `whatif` behaves and prints exactly as before. Spec case E36 (`whatif a = 1, b = 2`) is now valid (moved to M07); a comma in any other position changes from E101 to E201.
+
 ---
 
 ## Revision log
@@ -186,3 +193,13 @@ No language behavior changed and no error code was added.
 | Within one expression, "source order" is ambiguous when an operator's operand is itself ill-typed (`true + (1 + false)`): the outer operator cannot be type-checked. | Expressions are checked in post-order and the first error stops analysis. An operator is never checked when an operand failed, so the reported error is always the earliest error that is actually determinable. Within a statement, checks follow source position: `let` name (E302) before its expression; `whatif` name (E301/E303), then value (E403), then target (E301/E304). | causa/semantic.py |
 | CA §3 did not fix the owner name of assert-expression nodes, how a promoted override keeps its original literal, or the order of a binding's dependencies. | Recorded in compiler-architecture §3.7: owners `assert#K`; `WhatIf` keeps both `value` (normalized) and `source_value` plus literal location; provenance keeps `direct_deps` (declaration order) and `references` (first-appearance order). | compiler-architecture.md §3.7 |
 | An IR invariant violation is a compiler bug, not a user error. | `validate_ir` raises `IRValidationError`, which is not a `CausaError` and is never formatted as a diagnostic. | causa/ir.py |
+
+
+### Revision 3 (2026-10-25) — Phase 7
+
+| Decision | Change |
+|---|---|
+| D24 | New: several overrides per `whatif`, union cone, target depends on at least one overridden input, E305 for a repeated input, comma token (E201 outside `whatif`). |
+| D12, D15, D16, D23 | Unchanged in substance; they now apply to each override (D15), to the union cone (D12, D16) and to "at least one overridden input" (D23). |
+
+Affected documents: grammar (`whatif_stmt`, `,` operator), language specification §3.6, §8.5, §9.2, §10, §12, §13; compiler architecture §3.4, §3.7, §6.4, §6.5; examples/pricing.cau; tests/specification-cases.md (new §3b M-series; E36 moved).

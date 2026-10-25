@@ -262,7 +262,17 @@ class InvariantTests(unittest.TestCase):
         whatifs = [s for s in self.after.steps if isinstance(s, WhatIf)]
         self.assertEqual(whatifs[0].target, self.after.bindings["y"])
         self.assertIn("x", self.after.provenance.transitive_deps("y"))
-        self.assertEqual((whatifs[1].value, whatifs[1].value_type, whatifs[1].promoted), (1.0, FLOAT, True))
+        (override,) = whatifs[1].overrides
+        self.assertEqual((override.value, override.value_type, override.promoted), (1.0, FLOAT, True))
+
+    def test_several_overrides_survive_optimization(self) -> None:
+        before = compile_to_ir(src("input a = 1", "input b = 0.5", "let y = b * (2 + 3) + a",
+                                   "whatif b = 2, a = 7 show y"))
+        after = optimize(before).module
+        old = [s for s in before.steps if isinstance(s, WhatIf)]
+        new = [s for s in after.steps if isinstance(s, WhatIf)]
+        self.assertEqual(new, old)  # overrides, order, promotion and target untouched
+        self.assertEqual([o.input for o in new[0].overrides], [after.bindings["b"], after.bindings["a"]])
 
     def test_explain_and_impact_information_unchanged(self) -> None:
         for name in self.before.bindings:

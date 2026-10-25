@@ -236,9 +236,17 @@ void causa_format_value(int type, causa_value value, char *out, size_t size);
 void causa_show(const causa_value *env, int binding);
 void causa_explain(const causa_value *env, int binding);
 void causa_impact(const causa_value *env, int binding, int visible);
-/* `value` already has the input's type; target is CAUSA_NO_TARGET for the full form. */
-void causa_whatif(const causa_value *env, int input_binding, causa_value value, int target_binding,
-                  int visible);
+/* One override of a whatif: an input binding and its value, which already has
+   the input's type (promoted by the compiler if needed). */
+typedef struct {
+    int input;
+    causa_value value;
+} causa_override;
+
+/* `overrides` holds override_count >= 1 distinct inputs in statement order;
+   target is CAUSA_NO_TARGET for the full form. */
+void causa_whatif(const causa_value *env, const causa_override *overrides, int override_count,
+                  int target_binding, int visible);
 /* Exits with status 1 and a diagnostic if !ok. */
 void causa_assert(const causa_value *env, int assert_index, bool ok);
 

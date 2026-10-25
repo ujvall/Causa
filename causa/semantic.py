@@ -104,6 +104,7 @@ class Symbol:
 @dataclass(frozen=True, slots=True)
 class Override:
     """A validated whatif override. `literal` is the untouched AST node."""
+    input: str  # the overridden input's name
     literal: Literal
     type: CausaType  # the input's type
     value: int | float | bool  # normalized: promoted to float if needed
@@ -115,7 +116,7 @@ class SemanticProgram:
     program: Program
     symbols: dict[str, Symbol]  # insertion order = declaration order
     visible: tuple[int, ...]  # per statement: number of bindings declared before it
-    overrides: dict[int, Override]  # statement index -> whatif override
+    overrides: dict[int, tuple[Override, ...]]  # statement index -> whatif overrides, statement order
     expr_types: dict[int, CausaType]  # id(expr node) -> static type
 
     def type_of(self, expr: Expr) -> CausaType:
@@ -144,7 +145,7 @@ class _Analyzer:
         self.symbols: dict[str, Symbol] = {}
         self.statements: list[Statement] = []
         self.visible: list[int] = []
-        self.overrides: dict[int, Override] = {}
+        self.overrides: dict[int, tuple[Override, ...]] = {}
         self.types: dict[int, CausaType] = {}
 
     def statement(self, stmt: Statement) -> None:
@@ -222,33 +223,41 @@ class _Analyzer:
 
     # ---- whatif (LS §8.5.1) ---------------------------------------------------
 
-    def _whatif(self, stmt: WhatIfStmt) -> Override:
-        symbol = self._lookup(stmt.name)
-        if symbol.kind is not BindingKind.INPUT:
-            raise CausaError("E303", f"'{symbol.name}' is a let binding; whatif can only override inputs",
-                         stmt.name.span.line, stmt.name.span.column)
-        literal = stmt.value
-        literal_type = LITERAL_TYPES[literal.type]
-        if literal_type is symbol.type:
-            override = Override(literal, symbol.type, literal.value, promoted=False)
-        elif literal_type is INT and symbol.type is FLOAT:
-            override = Override(literal, FLOAT, float(literal.value), promoted=True)
-        else:
-            raise CausaError("E403", f"cannot override {symbol.type.value} input '{symbol.name}' "
-                                 f"with a {literal_type.value} literal",
-                         literal.span.line, literal.span.column)
+    def _whatif(self, stmt: WhatIfStmt) -> tuple[Override, ...]:
+        """Check each override in source order (E301, E303, E305, E403), then the target."""
+        overrides: list[Override] = []
+        for clause in stmt.overrides:
+            symbol = self._lookup(clause.name)
+            span = clause.name.span
+            if symbol.kind is not BindingKind.INPUT:
+                raise CausaError("E303", f"'{symbol.name}' is a let binding; whatif can only override inputs",
+                                 span.line, span.column)
+            if any(o.input == symbol.name for o in overrides):
+                raise CausaError("E305", f"input '{symbol.name}' is overridden more than once in this whatif",
+                                 span.line, span.column)
+            literal = clause.value
+            literal_type = LITERAL_TYPES[literal.type]
+            if literal_type is symbol.type:
+                overrides.append(Override(symbol.name, literal, symbol.type, literal.value, promoted=False))
+            elif literal_type is INT and symbol.type is FLOAT:
+                overrides.append(Override(symbol.name, literal, FLOAT, float(literal.value), promoted=True))
+            else:
+                raise CausaError("E403", f"cannot override {symbol.type.value} input '{symbol.name}' "
+                                         f"with a {literal_type.value} literal",
+                                 literal.span.line, literal.span.column)
         if stmt.target is not None:
             target = self._lookup(stmt.target)
+            names = [o.input for o in overrides]
             if target.kind is BindingKind.INPUT:
                 reason = "is an input; a whatif target must be a let binding"
-            elif symbol.name not in target.transitive_deps:
-                reason = f"does not depend on '{symbol.name}'"
+            elif not target.transitive_deps.intersection(names):
+                reason = "does not depend on " + " or ".join(f"'{n}'" for n in names)
             else:
                 reason = ""
             if reason:
                 raise CausaError("E304", f"whatif target '{target.name}' {reason}",
-                             stmt.target.span.line, stmt.target.span.column)
-        return override
+                                 stmt.target.span.line, stmt.target.span.column)
+        return tuple(overrides)
 
 
 def _requirement(op: BinaryOperator) -> str:

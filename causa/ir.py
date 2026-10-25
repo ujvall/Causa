@@ -100,17 +100,23 @@ class Impact:
 
 
 @dataclass(frozen=True, slots=True)
-class WhatIf:
+class OverrideValue:
+    """One override of a whatif action."""
     input: int  # input anchor
     value: Value  # normalized to the input's type (promoted if needed)
     value_type: CausaType
     source_value: Value  # literal as written (after its sign)
     promoted: bool
+    value_line: int  # location of the override literal
+    value_column: int
+
+
+@dataclass(frozen=True, slots=True)
+class WhatIf:
+    overrides: tuple[OverrideValue, ...]  # one or more, statement order, distinct inputs
     target: int | None  # bind anchor for the targeted form, None for the full form
     visible: int
     line: int
-    value_line: int  # location of the override literal
-    value_column: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,12 +241,13 @@ class _Builder:
                 self.steps.append(Explain(self.anchors[name.text], span.line))
             case ImpactStmt(name, span):
                 self.steps.append(Impact(self.anchors[name.text], self.sem.visible[index], span.line))
-            case WhatIfStmt(name, value, target, span):
-                override = self.sem.overrides[index]
-                self.steps.append(WhatIf(
-                    self.anchors[name.text], override.value, override.type, value.value, override.promoted,
-                    self.anchors[target.text] if target else None, self.sem.visible[index], span.line,
-                    value.span.line, value.span.column))
+            case WhatIfStmt(_, target, span):
+                overrides = tuple(
+                    OverrideValue(self.anchors[o.input], o.value, o.type, o.literal.value, o.promoted,
+                                  o.literal.span.line, o.literal.span.column)
+                    for o in self.sem.overrides[index])
+                self.steps.append(WhatIf(overrides, self.anchors[target.text] if target else None,
+                                         self.sem.visible[index], span.line))
             case AssertStmt(condition, source_text, span):
                 self.owner = f"assert#{self.asserts}"
                 self.asserts += 1
@@ -446,18 +453,27 @@ def validate_ir(module: IRModule) -> None:
             if isinstance(step, Impact) and step.visible != visible:
                 fail("impact visibility count is wrong")
         elif isinstance(step, WhatIf):
-            node = by_id.get(step.input)
-            if step.input not in done or node is None or node.kind is not NodeKind.INPUT:
-                fail("whatif must override a defined input")
-            assert node is not None
-            value_type = {bool: BOOL, int: INT, float: FLOAT}.get(type(step.value))
-            if step.value_type is not node.type or value_type is not node.type or step.visible != visible:
-                fail("whatif value type or visibility is wrong")
+            if not step.overrides:
+                fail("whatif must have at least one override")
+            if len({o.input for o in step.overrides}) != len(step.overrides):
+                fail("whatif overrides the same input more than once")
+            if step.visible != visible:
+                fail("whatif visibility is wrong")
+            names = []
+            for o in step.overrides:
+                node = by_id.get(o.input)
+                if o.input not in done or node is None or node.kind is not NodeKind.INPUT:
+                    fail("whatif must override a defined input")
+                assert node is not None
+                value_type = {bool: BOOL, int: INT, float: FLOAT}.get(type(o.value))
+                if o.value_type is not node.type or value_type is not node.type:
+                    fail("whatif value type is wrong")
+                names.append(node.name)
             if step.target is not None:
                 target = by_id.get(step.target)
                 if (step.target not in done or target is None or target.kind is not NodeKind.BIND
-                        or node.name not in prov.transitive_deps(target.name or "")):
-                    fail("whatif target must be a defined let that transitively depends on the input")
+                        or not set(prov.transitive_deps(target.name or "")).intersection(names)):
+                    fail("whatif target must be a defined let that transitively depends on an overridden input")
         elif isinstance(step, Assert):
             if step.root not in done or by_id[step.root].type is not BOOL:
                 fail("assert condition must be a defined bool node")
@@ -514,10 +530,12 @@ def format_step(step: Step, module: IRModule) -> str:
         case Impact(anchor, visible):
             return f"impact {ref(anchor)} visible={visible}"
         case WhatIf():
-            promoted = f" (promoted from {format_value(step.source_value)})" if step.promoted else ""
+            pairs = ", ".join(
+                f"{ref(o.input)} = {format_value(o.value)}"
+                + (f" (promoted from {format_value(o.source_value)})" if o.promoted else "")
+                for o in step.overrides)
             target = f" show {ref(step.target)}" if step.target is not None else ""
-            return (f"whatif {ref(step.input)} = {format_value(step.value)}{promoted}{target} "
-                    f"visible={step.visible}")
+            return f"whatif {pairs}{target} visible={step.visible}"
         case Assert(root, source_text, refs):
             return f'assert n{root} "{source_text}" refs=[{", ".join(f"n{r}" for r in refs)}]'
     raise TypeError(step)

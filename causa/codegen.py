@@ -279,10 +279,13 @@ class _Emitter:
         if isinstance(step, Impact):
             return f"causa_impact(env, {self._binding(step.anchor)}, {step.visible}); /* line {step.line} */"
         if isinstance(step, WhatIf):
-            value = f"(causa_value){{ .{_MEMBER[step.value_type]} = {c_literal(step.value, step.value_type)} }}"
+            # One compound-literal array of { input, value } pairs, in statement order.
+            overrides = ", ".join(
+                f"{{ {self._binding(o.input)}, {{ .{_MEMBER[o.value_type]} = {c_literal(o.value, o.value_type)} }} }}"
+                for o in step.overrides)
             target = self._binding(step.target) if step.target is not None else "CAUSA_NO_TARGET"
-            return (f"causa_whatif(env, {self._binding(step.input)}, {value}, {target}, {step.visible});"
-                    f" /* line {step.line} */")
+            return (f"causa_whatif(env, (const causa_override[]){{ {overrides} }}, {len(step.overrides)}, "
+                    f"{target}, {step.visible}); /* line {step.line} */")
         if isinstance(step, Assert):
             return (f"causa_assert(env, {assert_index}, env[{step.root}].b);"
                     f" /* line {step.line}: {_comment(step.source_text)} */")

@@ -9,9 +9,9 @@ Conventions:
 * **Output** lists stdout lines separated by ` / `; `··` denotes two spaces of indentation. Unless stated otherwise, stderr is empty and exit status is 0.
 * `F` stands for the source file name in diagnostics.
 * Spec references: LS = [language-specification.md](../docs/language-specification.md), CA = [compiler-architecture.md](../docs/compiler-architecture.md), D = [semantic-decisions.md](../docs/semantic-decisions.md).
-* Cases marked **(rev 2)** were added or changed in revision 2.
+* Cases marked **(rev 2)** were added or changed in revision 2; the M-series (§6b) and E36 changed in revision 3 (Phase 7).
 
-**Automated coverage (Phases 2–6).** Every case in §§1–9 is automated. [test_spec_cases.py](test_spec_cases.py) runs each program through the lexer, parser, semantic analysis and Causal IR; lexical, syntax and semantic errors (E1xx–E4xx) are checked by code and location. Every case that compiles (V, X, W, P01–P04, H, T, I and R cases, and the example-file cases V22, V23, X08, W13, T09, I05) is compiled to C, built with the runtime library and executed by [test_runtime.py](test_runtime.py), which compares stdout, stderr and exit status exactly with the expected outcome; a test fails if any such case lacks an expected outcome. These execution tests need a C compiler and are skipped (not failed) without one. IR cases: IR01–IR03 by [test_ir.py](test_ir.py); IR04–IR07 (structure) by [test_optimizer.py](test_optimizer.py), with their runtime outputs (W01, R02) covered end to end; IR08 by building every runtime case from unoptimized IR and requiring identical output; IR09 and IR11 by an instrumented harness in [test_runtime.py](test_runtime.py) that records which nodes a `whatif` re-evaluates and compares the base environment bit for bit. IR10 is covered only in part: [test_ir.py](test_ir.py) checks that the `whatif` action carries the promoted `float` value, but no test asserts the absence of an `itof` node for the override.
+**Automated coverage (Phases 2–7).** Every case in §§1–9, including the revision 3 M-series (§6b), is automated. [test_spec_cases.py](test_spec_cases.py) runs each program through the lexer, parser, semantic analysis and Causal IR; lexical, syntax and semantic errors (E1xx–E4xx) are checked by code and location. Every case that compiles (V, X, W, P01–P04, H, T, M01–M07, M20, I and R cases, and the example-file cases V22, V23, X08, W13, T09, I05) is compiled to C, built with the runtime library and executed by [test_runtime.py](test_runtime.py), which compares stdout, stderr and exit status exactly with the expected outcome; a test fails if any such case lacks an expected outcome. These execution tests need a C compiler and are skipped (not failed) without one. IR cases: IR01–IR03 by [test_ir.py](test_ir.py); IR04–IR07 (structure) by [test_optimizer.py](test_optimizer.py), with their runtime outputs (W01, R02) covered end to end; IR08 by building every runtime case from unoptimized IR and requiring identical output; IR09 and IR11 by an instrumented harness in [test_runtime.py](test_runtime.py) that records which nodes a `whatif` re-evaluates and compares the base environment bit for bit. IR10 is covered only in part: [test_ir.py](test_ir.py) checks that the `whatif` action carries the promoted `float` value, but no test asserts the absence of an `itof` node for the override.
 
 ## 1. Valid programs and basic semantics
 
@@ -130,6 +130,31 @@ Conventions:
 | T19 | `input x = 1⏎let y = x⏎whatif x = 5 show let` | E201 @ 3:19 | keyword as target |
 | T20 | `input x = 1⏎let y = x⏎whatif x = 5 explain y` | E203 @ 3:14 | only `show` may follow the override |
 
+## 6b. Whatif — several overrides (D24, rev 3)
+
+| ID | Program | Expected | Ref |
+|---|---|---|---|
+| M01 | `input a = 1⏎input b = 2⏎let s = a + b⏎whatif a = 10, b = 20` | `whatif a = 10, b = 20 / ··a: 1 -> 10  (override) / ··b: 2 -> 20  (override) / ··s: 3 -> 30` | both overrides applied together |
+| M02 | `input a = 1⏎input b = 2⏎let x = a * 2⏎let y = b * 2⏎let z = x + y⏎whatif b = 5, a = 3` | `whatif b = 5, a = 3 / ··b: 2 -> 5  (override) / ··a: 1 -> 3  (override) / ··x: 2 -> 6 / ··y: 4 -> 10 / ··z: 6 -> 16` | header and override lines in statement order; union cone in declaration order |
+| M03 | `input a = 1⏎input b = 2⏎let y = b * 2⏎whatif a = 5, b = 3 show y` | `whatif a = 5, b = 3 show y / ··y: 4 -> 6` | target depends on one of the overridden inputs |
+| M04 | `input f = 0.5⏎input i = 1⏎let r = f * i⏎whatif f = 2, i = 3` | `whatif f = 2.0, i = 3 / ··f: 0.5 -> 2.0  (override) / ··i: 1 -> 3  (override) / ··r: 0.5 -> 6.0` | promotion per override |
+| M05 | `input d = 2⏎input k = 1⏎let q = 10 / d⏎let r = q * k⏎let w = k * 0⏎whatif d = 0, k = 5` | `whatif d = 0, k = 5 / ··d: 2 -> 0  (override) / ··k: 1 -> 5  (override) / ··q: 5.0 -> error[R101] at 3:12 (division by zero) / ··r: 5.0 -> unavailable (depends on q) / ··w: 0 -> 0  (unchanged)`; exit 0 | failed, unavailable and unchanged outcomes |
+| M06 | `input a = 1⏎input b = 2⏎let s = a + b⏎whatif a = 10, b = 20⏎whatif b = 7⏎show s` | M01's report, then `whatif b = 7 / ··b: 2 -> 7  (override) / ··s: 3 -> 8 / s = 3` | overrides do not accumulate |
+| M07 | `input a = 1⏎input b = 2⏎whatif a = 1, b = 2` | `whatif a = 1, b = 2 / ··a: 1 -> 1  (override) / ··b: 2 -> 2  (override) / ··(no dependent bindings)` | former E36 |
+| M08 | `input a = 1⏎whatif a = 1, a = 2` | E305 @ 2:15 | same input twice |
+| M09 | `input a = 1⏎input b = 2⏎input c = 3⏎let y = c * 2⏎whatif a = 1, b = 2 show y` | E304 @ 5:26 | target depends on no overridden input |
+| M10 | `input a = 1⏎let b = a⏎whatif a = 2, b = 3` | E303 @ 3:15 | second override is a let |
+| M11 | `input a = 1⏎input f = 0.5⏎whatif a = 2, f = true` | E403 @ 3:19 | second override's type |
+| M12 | `input a = 1⏎whatif a = 2, z = 3` | E301 @ 2:15 | second override undeclared |
+| M13 | `input a = 1⏎whatif a = 2,` | E201 @ 2:14 | trailing comma |
+| M14 | `input a = 1⏎input b = 2⏎whatif a = 2, show b` | E201 @ 3:15 | missing override after comma |
+| M15 | `input a = 1⏎input b = 2⏎whatif a = 2 b = 3` | E203 @ 3:14 | missing comma |
+| M16 | `let x = 1, 2` | E201 @ 1:10 | comma outside whatif (was E101) |
+| M17 | `input a = 1, b = 2` | E203 @ 1:12 | input initializer followed by a comma |
+| M18 | `input x = 1⏎show x, x` | E201 @ 2:7 | one name per show |
+| M19 | `input a = 1⏎let b = a⏎whatif a = 2.5, b = 3` | E403 @ 3:12 | first error in source order |
+| M20 | `input x = 3⏎input y = 4⏎let z = x * 0 + y * 0⏎whatif x = 7, y = 9 show z` | `whatif x = 7, y = 9 show z / ··z: 0 -> 0  (unchanged)` | structural dependence, not numeric change |
+
 ## 7. Impact
 
 | ID | Program | Expected stdout | Ref |
@@ -181,7 +206,7 @@ Conventions:
 | E33 | `let x = 1 % 2` | E101 @ 1:11 | `%` deferred |
 | E34 | `let x = .5` | E101 @ 1:9 | |
 | E35 | `let café = 1` | E101 @ 1:8 | non-ASCII identifier |
-| E36 | `input a = 1⏎input b = 2⏎whatif a = 1, b = 2` | E101 @ 3:13 | multiple overrides deferred |
+| E36 | *(moved to M07 in rev 3: several overrides per `whatif` are valid)* | — | D24 |
 | E37 | `let x = 007` | E102 @ 1:9 | leading zero |
 | E38 | `let x = 1.` | E102 @ 1:9 | |
 | E39 | `let x = 123abc` | E102 @ 1:9 | |

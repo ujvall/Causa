@@ -55,6 +55,7 @@ class TokenKind(enum.Enum):
     ASSIGN = "="
     LPAREN = "("
     RPAREN = ")"
+    COMMA = ","  # separates whatif overrides (specification revision 3)
     # structure
     NEWLINE = "end of line"
     EOF = "end of file"
@@ -71,7 +72,8 @@ RESERVED: dict[str, TokenKind] = {
 }
 _TWO_CHAR = {"==": K.EQ, "!=": K.NE, "<=": K.LE, ">=": K.GE}
 _ONE_CHAR = {"=": K.ASSIGN, "<": K.LT, ">": K.GT, "+": K.PLUS, "-": K.MINUS,
-             "*": K.STAR, "/": K.SLASH, "(": K.LPAREN, ")": K.RPAREN}
+             "*": K.STAR, "/": K.SLASH, "(": K.LPAREN, ")": K.RPAREN,
+             ",": K.COMMA}
 
 _LETTERS = frozenset(string.ascii_letters + "_")
 _DIGITS = frozenset(string.digits)
@@ -218,8 +220,6 @@ def _scan_number(text: str, start: int, line: int, column: int) -> tuple[TokenKi
 def _invalid_char_message(c: str) -> str:
     if c == "!":
         return "invalid character '!'; use 'not' for negation or '!=' for inequality"
-    if c == ",":
-        return "invalid character ','; whatif accepts one override in version 1"
     if c == ".":
         return "invalid character '.'; a float literal needs a digit before '.'"
     if not c.isascii():

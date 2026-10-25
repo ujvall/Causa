@@ -7,8 +7,8 @@ from pathlib import Path
 
 from causa.frontend import check, compile_to_ir, read_source
 from causa.ir import (
-    Assert, Def, Explain, Impact, IRModule, IRValidationError, NodeKind, Opcode, Provenance, Show,
-    WhatIf, build_ir, check_against_program, format_node, topological_order, validate_ir,
+    Assert, Def, Explain, Impact, IRModule, IRValidationError, NodeKind, Opcode, OverrideValue, Provenance,
+    Show, WhatIf, build_ir, check_against_program, format_node, topological_order, validate_ir,
 )
 from causa.semantic import CausaType
 
@@ -120,10 +120,10 @@ class ConstructionTests(unittest.TestCase):
         self.assertEqual(actions[2], Impact(t, 2, 5))
         w = actions[3]
         assert isinstance(w, WhatIf)
-        self.assertEqual((w.input, w.value, w.value_type, w.source_value, w.promoted, w.target, w.visible),
-                         (t, 1.0, FLOAT, 1, True, u, 2))
-        self.assertEqual((w.value_line, w.value_column), (6, 12))
-        self.assertIs(type(w.value), float)
+        self.assertEqual((w.target, w.visible, w.line), (u, 2, 6))
+        (o,) = w.overrides
+        self.assertEqual(o, OverrideValue(t, 1.0, FLOAT, 1, True, 6, 12))
+        self.assertIs(type(o.value), float)
         full = actions[4]
         assert isinstance(full, WhatIf)
         self.assertIsNone(full.target)
@@ -250,8 +250,33 @@ class ValidationTests(unittest.TestCase):
         self.assertInvalid(replace(self.m, steps=steps), "whatif target")
 
     def test_whatif_value_type(self) -> None:
-        steps = tuple(replace(s, value=5.0) if isinstance(s, WhatIf) else s for s in self.m.steps)
+        steps = tuple(replace(s, overrides=(replace(s.overrides[0], value=5.0),)) if isinstance(s, WhatIf) else s
+                      for s in self.m.steps)
         self.assertInvalid(replace(self.m, steps=steps), "whatif value type")
+
+    def with_overrides(self, *overrides: OverrideValue, target: int | None = None) -> IRModule:
+        steps = tuple(replace(s, overrides=overrides, target=target) if isinstance(s, WhatIf) else s
+                      for s in self.m.steps)
+        return replace(self.m, steps=steps)
+
+    def test_several_overrides(self) -> None:
+        x, k, z = self.m.bindings["x"], self.m.bindings["k"], self.m.bindings["z"]
+        ox = OverrideValue(x, 5, INT, 5, False, 6, 12)
+        ok = OverrideValue(k, 3.0, FLOAT, 3, True, 6, 19)
+        validate_ir(self.with_overrides(ox, ok, target=z))  # valid: both distinct inputs
+        self.assertInvalid(self.with_overrides(ox, ox), "same input more than once")
+        self.assertInvalid(self.with_overrides(), "at least one override")
+        self.assertInvalid(self.with_overrides(ox, replace(ok, input=z)), "defined input")
+
+    def test_target_must_depend_on_some_overridden_input(self) -> None:
+        m = ir("input a = 1", "input b = 2", "let y = b * 2", "whatif a = 5, b = 3 show y")
+        validate_ir(m)
+        (w,) = [s for s in m.steps if isinstance(s, WhatIf)]
+        self.assertEqual([o.input for o in w.overrides], [m.bindings["a"], m.bindings["b"]])  # statement order
+        only_a = replace(m, steps=tuple(replace(s, overrides=s.overrides[:1]) if isinstance(s, WhatIf) else s
+                                        for s in m.steps))
+        with self.assertRaises(IRValidationError):
+            validate_ir(only_a)
 
     def test_action_before_definition(self) -> None:
         steps = list(self.m.steps)
