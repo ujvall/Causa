@@ -9,7 +9,7 @@ Conventions:
 * **Output** lists stdout lines separated by ` / `; `··` denotes two spaces of indentation. Unless stated otherwise, stderr is empty and exit status is 0.
 * `F` stands for the source file name in diagnostics.
 * Spec references: LS = [language-specification.md](../docs/language-specification.md), CA = [compiler-architecture.md](../docs/compiler-architecture.md), D = [semantic-decisions.md](../docs/semantic-decisions.md).
-* Cases marked **(rev 2)** were added or changed in revision 2; the M-series (§6b) and E36 changed in revision 3 (Phase 7).
+* Cases marked **(rev 2)** were added or changed in revision 2; the M-series (§6b) and E36 changed in revision 3 (Phase 7); the L-series (§6c) was added in revision 4 (Phase 8) and is run by [test_launch.py](test_launch.py).
 
 **Automated coverage (Phases 2–7).** Every case in §§1–9, including the revision 3 M-series (§6b), is automated. [test_spec_cases.py](test_spec_cases.py) runs each program through the lexer, parser, semantic analysis and Causal IR; lexical, syntax and semantic errors (E1xx–E4xx) are checked by code and location. Every case that compiles (V, X, W, P01–P04, H, T, M01–M07, M20, I and R cases, and the example-file cases V22, V23, X08, W13, T09, I05) is compiled to C, built with the runtime library and executed by [test_runtime.py](test_runtime.py), which compares stdout, stderr and exit status exactly with the expected outcome; a test fails if any such case lacks an expected outcome. These execution tests need a C compiler and are skipped (not failed) without one. IR cases: IR01–IR03 by [test_ir.py](test_ir.py); IR04–IR07 (structure) by [test_optimizer.py](test_optimizer.py), with their runtime outputs (W01, R02) covered end to end; IR08 by building every runtime case from unoptimized IR and requiring identical output; IR09 and IR11 by an instrumented harness in [test_runtime.py](test_runtime.py) that records which nodes a `whatif` re-evaluates and compares the base environment bit for bit. IR10 is covered only in part: [test_ir.py](test_ir.py) checks that the `whatif` action carries the promoted `float` value, but no test asserts the absence of an `itof` node for the override.
 
@@ -154,6 +154,34 @@ Conventions:
 | M18 | `input x = 1⏎show x, x` | E201 @ 2:7 | one name per show |
 | M19 | `input a = 1⏎let b = a⏎whatif a = 2.5, b = 3` | E403 @ 3:12 | first error in source order |
 | M20 | `input x = 3⏎input y = 4⏎let z = x * 0 + y * 0⏎whatif x = 7, y = 9 show z` | `whatif x = 7, y = 9 show z / ··z: 0 -> 0  (unchanged)` | structural dependence, not numeric change |
+
+## 6c. Launch arguments (D25, rev 4)
+
+Programs are compiled with source file name `F` and run with the arguments shown. Argument errors are checked by code: stderr is one line starting `F: argument error[CODE]: `, stdout is empty and the exit status is 3.
+
+| ID | Program | Arguments | Expected |
+|---|---|---|---|
+| L01 | [examples/pricing.cau](../examples/pricing.cau) | *(none)* | byte-identical to LS §12, exit 0 |
+| L02 | [examples/pricing.cau](../examples/pricing.cau) | `--set price=150` | identical to the same program with `input price = 150` run without arguments; first line `total = 130.5625`; `explain` shows `price = 150  [input]`; `whatif price = 160` shows `price: 150 -> 160  (override)` |
+| L03 | `input a = 1⏎input b = 2⏎let s = a + b⏎show s` | `--set a=10 --set b=20`, and `--set b=20 --set a=10` | `s = 30` both times |
+| L04 | `input f = 0.5⏎show f` | `--set f=2` | `f = 2.0` (promotion) |
+| L05 | `input n = 5⏎show n` | `--set n=1.5` | A107 |
+| L06 | `input m = true⏎show m` | `--set m=1`; `--set m=false` | A107; `m = false` |
+| L07 | `input a = 1⏎show a` | `--set a=1 --set a=2` | A105 |
+| L08 | `input x = 1⏎let s = x + 1⏎show s` | `--set prise=1`; `--set s=1` | A103; A104 |
+| L09 | `input x = 1⏎show x` | `--set x=`; `--set x`; `--set =1`; `--set` | A102 each |
+| L10 | `input x = 1⏎show x` | `x=007`, `x=1e5`, `x=+5`, `x=0x10`, `x=nan`, `x=inf`, `x=True` (each after `--set`) | A106 each |
+| L11 | `input x = 1⏎show x` | `--set x=9223372036854775808`; `…=9223372036854775807`; `…=-9223372036854775807` | A108; `x = 9223372036854775807`; `x = -9223372036854775807` |
+| L12 | `input f = 0.5⏎show f` | `--set f=1.0e400`; `--set f=1.0e-400` | A109; `f = 0.0` |
+| L13 | `input x = 1⏎show x` | `--sett x=1`; `x=1`; `-s` | A101 each |
+| L14 | `input x = 1⏎show x` | `--set x=2 --set bogus=1` | A103 and **no stdout** (nothing ran) |
+| L15 | `input x = 1⏎let y = x + 1⏎whatif x = 10⏎show y` | `--set x=5` | `whatif x = 10 / ··x: 5 -> 10  (override) / ··y: 6 -> 11 / y = 6` |
+| L16 | `input d = 2⏎let q = 10 / d` | `--set d=0` | stderr `F:2:12: runtime error[R101]: division by zero`, exit **2** (a runtime error, not an argument error) |
+| L17 | `input x = 5⏎assert x > 0` | `--set x=-1` | stderr `F:2:1: assertion failed: x > 0` / `··x = -1`, exit 1 |
+| L18 | `input x = 3⏎let z = x * 0 + x⏎show z` | `--set x=7` | `z = 7`, with and without optimization (inputs are never folded) |
+| L19 | `input f = 0.5⏎show f` | `--set f=-0.0` | `f = -0.0` |
+| L20 | `input d = 1⏎let q = 10 / d`, built with `causa_runtime.h` only | `--set d=0`; `--set d=5`; `--set d=x` | R101 at 2:12, exit 2; no output, exit 0; A106, exit 3 |
+| L21 | [examples/pricing.cau](../examples/pricing.cau) | `--set price=150` twice | identical bytes |
 
 ## 7. Impact
 

@@ -21,6 +21,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -222,6 +224,197 @@ static inline void causa_runtime_error(const causa_error *err)
     else
         fprintf(stderr, "%s: internal compiler error (code %d)\n", file, err->code);
     exit(2);
+}
+
+/* ---- launch arguments (language-specification §9.5, implemented) -------- */
+/* `--set NAME=VALUE`, repeatable, sets an input's base value before the first
+   statement runs. Everything here is static inline so that header-only
+   programs (inputs and lets only) accept launch arguments too. */
+
+enum {
+    CAUSA_A101 = 101, /* unknown option or stray argument */
+    CAUSA_A102 = 102, /* --set without NAME=VALUE */
+    CAUSA_A103 = 103, /* NAME is not a declared binding */
+    CAUSA_A104 = 104, /* NAME is a let, not an input */
+    CAUSA_A105 = 105, /* input set more than once */
+    CAUSA_A106 = 106, /* VALUE is not a CAUSA literal */
+    CAUSA_A107 = 107, /* VALUE's type does not fit the input */
+    CAUSA_A108 = 108, /* integer magnitude exceeds 2^63 - 1 */
+    CAUSA_A109 = 109  /* float rounds to infinity */
+};
+
+/* Launch values, one slot per binding; `set` is NULL when no --set was given.
+   Function-local storage avoids an unused static object in other units. */
+typedef struct {
+    causa_value *values;
+    unsigned char *set;
+} causa_launch_state;
+
+static inline causa_launch_state *causa_launch(void)
+{
+    static causa_launch_state state;
+    return &state;
+}
+
+/* The base value of an input: its launch value if one was given, otherwise
+   the source literal. Generated code calls this for every input node. */
+static inline causa_value causa_input_value(int binding, causa_value source_default)
+{
+    const causa_launch_state *s = causa_launch();
+    return (s->set && s->set[binding]) ? s->values[binding] : source_default;
+}
+
+/* Report an invalid launch argument (stderr) and exit with status 3. */
+static inline void causa_argument_error(int code, const char *format, ...)
+{
+    va_list args;
+    fflush(stdout);
+    fprintf(stderr, "%s: argument error[A%d]: ",
+            CAUSA_PROGRAM.source_file ? CAUSA_PROGRAM.source_file : "<unknown>", code);
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    fputc('\n', stderr);
+    exit(3);
+}
+
+/* Parse `text` with the rules of a source literal_value (LS §3.5, §5.4): "true",
+   "false", or an optional "-" then an integer ("0" or no leading zero) or a
+   float (digits "." digits, optional exponent). The whole string must match.
+   Returns 0 and sets *type and *out, or CAUSA_A106 / A108 / A109. */
+static inline int causa_parse_literal(const char *text, int *type, causa_value *out)
+{
+    const char *p = text, *int_start, *frac_start = NULL;
+    size_t int_len, frac_len = 0;
+    int negative = 0, exponent = 0, exp_negative = 0;
+    if (strcmp(text, "true") == 0 || strcmp(text, "false") == 0) {
+        *type = CAUSA_TYPE_BOOL;
+        out->b = text[0] == 't';
+        return CAUSA_OK;
+    }
+    if (*p == '-') { negative = 1; p++; }
+    int_start = p;
+    if (*p == '0') p++;
+    else if (*p >= '1' && *p <= '9') while (*p >= '0' && *p <= '9') p++;
+    else return CAUSA_A106; /* no digits */
+    int_len = (size_t)(p - int_start);
+    if (*p >= '0' && *p <= '9') return CAUSA_A106; /* leading zero */
+    if (*p == '.') {
+        p++;
+        frac_start = p;
+        while (*p >= '0' && *p <= '9') p++;
+        frac_len = (size_t)(p - frac_start);
+        if (frac_len == 0) return CAUSA_A106; /* "1." */
+        if (*p == 'e' || *p == 'E') {
+            p++;
+            if (*p == '+' || *p == '-') exp_negative = *p++ == '-';
+            if (!(*p >= '0' && *p <= '9')) return CAUSA_A106; /* exponent without digits */
+            while (*p >= '0' && *p <= '9') {
+                if (exponent < 100000) exponent = exponent * 10 + (*p - '0'); /* saturate: beyond any double */
+                p++;
+            }
+        }
+    }
+    if (*p != '\0') return CAUSA_A106; /* anything else, e.g. "1e5", "+5", "0x10", " 1" */
+    if (!frac_start) {
+        uint64_t magnitude = 0;
+        const char *d;
+        if (int_len > 19) return CAUSA_A108;
+        for (d = int_start; d < int_start + int_len; d++) magnitude = magnitude * 10 + (uint64_t)(*d - '0');
+        if (magnitude > (uint64_t)INT64_MAX) return CAUSA_A108;
+        *type = CAUSA_TYPE_INT;
+        out->i = negative ? -(int64_t)magnitude : (int64_t)magnitude;
+        return CAUSA_OK;
+    } else {
+        /* digits without a decimal point, so strtod cannot depend on the locale */
+        char *buf = (char *)malloc(int_len + frac_len + 16);
+        double v;
+        long scale;
+        if (!buf) {
+            fprintf(stderr, "%s: internal error: out of memory\n",
+                    CAUSA_PROGRAM.source_file ? CAUSA_PROGRAM.source_file : "<unknown>");
+            exit(2);
+        }
+        scale = (exp_negative ? -(long)exponent : (long)exponent) - (long)frac_len;
+        memcpy(buf, int_start, int_len);
+        memcpy(buf + int_len, frac_start, frac_len);
+        sprintf(buf + int_len + frac_len, "e%ld", scale);
+        v = strtod(buf, NULL); /* correctly rounded, like the compiler's float() */
+        free(buf);
+        if (isinf(v)) return CAUSA_A109;
+        *type = CAUSA_TYPE_FLOAT;
+        out->f = negative ? -v : v;
+        return CAUSA_OK;
+    }
+}
+
+static inline const char *causa_type_name(int type)
+{
+    return type == CAUSA_TYPE_INT ? "int" : type == CAUSA_TYPE_FLOAT ? "float" : "bool";
+}
+
+/* Validate every launch argument against the program's inputs before any
+   statement runs; the first invalid argument (in argument order) is reported
+   and the program exits with status 3 having produced no output. */
+static inline void causa_configure(int argc, char **argv)
+{
+    causa_launch_state *s = causa_launch();
+    size_t n = CAUSA_PROGRAM.binding_count > 0 ? (size_t)CAUSA_PROGRAM.binding_count : 1;
+    causa_value *values;
+    unsigned char *set;
+    int i;
+    if (argc <= 1) return; /* no arguments: source defaults, unchanged behavior */
+    values = (causa_value *)calloc(n, sizeof *values);
+    set = (unsigned char *)calloc(n, 1);
+    if (!values || !set) {
+        fprintf(stderr, "%s: internal error: out of memory\n",
+                CAUSA_PROGRAM.source_file ? CAUSA_PROGRAM.source_file : "<unknown>");
+        exit(2);
+    }
+    for (i = 1; i < argc; i++) {
+        const char *arg = argv[i], *eq, *value;
+        int b, binding = -1, literal_type = CAUSA_TYPE_INT, code;
+        size_t name_len;
+        causa_value v;
+        v.i = 0; /* causa_argument_error never returns, but C99 cannot say so */
+        if (strcmp(arg, "--set") != 0)
+            causa_argument_error(CAUSA_A101, "unknown argument '%s' (expected --set NAME=VALUE)", arg);
+        if (i + 1 >= argc) causa_argument_error(CAUSA_A102, "--set needs NAME=VALUE");
+        arg = argv[++i];
+        eq = strchr(arg, '=');
+        if (!eq || eq == arg || eq[1] == '\0')
+            causa_argument_error(CAUSA_A102, "expected NAME=VALUE after --set, found '%s'", arg);
+        name_len = (size_t)(eq - arg);
+        value = eq + 1;
+        for (b = 0; b < CAUSA_PROGRAM.binding_count; b++) {
+            const char *name = CAUSA_PROGRAM.bindings[b].name;
+            if (name && strlen(name) == name_len && strncmp(name, arg, name_len) == 0) { binding = b; break; }
+        }
+        if (binding < 0) causa_argument_error(CAUSA_A103, "'%.*s' is not a declared input", (int)name_len, arg);
+        if (CAUSA_PROGRAM.bindings[binding].kind != CAUSA_KIND_INPUT)
+            causa_argument_error(CAUSA_A104, "'%.*s' is a let binding; only inputs can be set", (int)name_len, arg);
+        if (set[binding]) causa_argument_error(CAUSA_A105, "input '%.*s' is set more than once", (int)name_len, arg);
+        code = causa_parse_literal(value, &literal_type, &v);
+        if (code == CAUSA_A106)
+            causa_argument_error(code, "'%s' is not a valid value for input '%.*s'", value, (int)name_len, arg);
+        if (code == CAUSA_A108)
+            causa_argument_error(code, "integer value '%s' for input '%.*s' exceeds 9223372036854775807", value,
+                                 (int)name_len, arg);
+        if (code == CAUSA_A109)
+            causa_argument_error(code, "float value '%s' for input '%.*s' is too large", value, (int)name_len, arg);
+        if (literal_type == CAUSA_TYPE_INT && CAUSA_PROGRAM.bindings[binding].type == CAUSA_TYPE_FLOAT) {
+            v.f = (double)v.i; /* the int-to-float promotion of a whatif override (D15) */
+            literal_type = CAUSA_TYPE_FLOAT;
+        }
+        if (literal_type != CAUSA_PROGRAM.bindings[binding].type)
+            causa_argument_error(CAUSA_A107, "cannot set %s input '%.*s' to the %s value '%s'",
+                                 causa_type_name(CAUSA_PROGRAM.bindings[binding].type), (int)name_len, arg,
+                                 causa_type_name(literal_type), value);
+        values[binding] = v;
+        set[binding] = 1;
+    }
+    s->values = values; /* applied all at once, only after every argument is valid */
+    s->set = set;
 }
 
 /* ---- runtime library (causa_runtime.c) ---------------------------------- */

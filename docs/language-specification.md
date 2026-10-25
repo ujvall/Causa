@@ -1,6 +1,6 @@
 # CAUSA Language Specification — Version 1
 
-Status: **language version 1, specification revision 3** (revision 3, Phase 7: several overrides per `whatif`). This document is the contract the compiler and runtime implement; the [README](../README.md) records what is implemented and how it is tested. Changes in revisions 2 and 3 are recorded in [semantic-decisions.md](semantic-decisions.md) (revision log at the end).
+Status: **language version 1, specification revision 4** (revision 3, Phase 7: several overrides per `whatif`; revision 4, Phase 8: launch arguments, §9.5). This document is the contract the compiler and runtime implement; the [README](../README.md) records what is implemented and how it is tested. Changes in revisions 2, 3 and 4 are recorded in [semantic-decisions.md](semantic-decisions.md) (revision log at the end).
 
 The formal grammar is in [grammar.ebnf](grammar.ebnf). Where this document and the grammar disagree, that is a specification bug and must be fixed in both.
 
@@ -20,7 +20,7 @@ Design principles:
 
 1. **Declarative and acyclic.** Every value is defined once, from values defined before it. There is no mutation and no looping, so the dependency structure of a program is a finite directed acyclic graph that the compiler knows completely.
 2. **Static and small type system.** Three types (`int`, `float`, `bool`), all types known at compile time, one implicit conversion.
-3. **Determinism.** A given program produces exactly one output, byte for byte, on every conforming implementation.
+3. **Determinism.** A given program run with the same launch arguments (§9.5) produces exactly one output, byte for byte, on every conforming implementation.
 4. **Explanations are about computation, not the world.** CAUSA tracks which computed values were used to compute which others. It does not establish real-world causation; a dependency between `price` and `total` means only that the program computes `total` from `price`.
 
 ## 2. Program at a glance
@@ -235,7 +235,7 @@ input NAME = literal_value
 * Declares an input binding: an externally changeable value and an **override point** for `whatif`.
 * **Type policy: the type is inferred from the literal's form** (§5.4). There are no annotations. `input rate = 0` is an `int`; write `input rate = 0.0` for a `float`.
 * The initializer must be exactly one `literal_value`. Any other expression (`input x = 1 + 2`, `input y = x`) is error **E203**.
-* The literal is the input's **base value** — the value used in ordinary execution. Inputs cannot be changed at program launch or during execution; the only way to vary an input is a hypothetical `whatif` (§13).
+* The literal is the input's **base value** — the value used in ordinary execution — unless the program is started with `--set NAME=VALUE` for that input (§9.5, revision 4), in which case the launch value is the base value. Inputs cannot change during execution; within a run, the only way to vary an input is a hypothetical `whatif`.
 
 ### 7.2 `let`
 
@@ -496,8 +496,46 @@ The location is the `assert` keyword; `SOURCE` is the assertion expression as wr
 | 0 | all statements executed (including any `whatif` with failed or unavailable outcomes) |
 | 1 | an assertion failed |
 | 2 | a runtime error occurred during base execution |
+| 3 | invalid launch arguments (§9.5); no statement was executed *(revision 4)* |
 
 ---
+
+### 9.5 Launch arguments *(revision 4)*
+
+A compiled program accepts **launch arguments** that set inputs' base values before the first statement runs:
+
+```
+./pricing                                  # every input keeps its source value
+./pricing --set price=150                  # price starts at 150
+./pricing --set price=150 --set tax=0.2    # several inputs, any order
+```
+
+* The only accepted argument is `--set NAME=VALUE` (two arguments: `--set`, then `NAME=VALUE` with no spaces). It may be repeated, once per input. There are no other options and no positional arguments.
+* `NAME` must be an input declared in the program. `VALUE` must be a `literal_value` (§5.4) written as one token: `true`, `false`, or an optional `-` followed by an integer or float literal with the rules of §3.5 (no leading zeros, digits on both sides of the point, an exponent only after a point). Its type must fit the input exactly as for a `whatif` override (§8.5.1): an integer literal may set a `float` input and is promoted to the nearest `float`; any other mismatch is rejected.
+* An input that is not set keeps its source literal. Inputs remain immutable once execution starts.
+* **All arguments are validated before the first statement runs.** If any is invalid, the program prints one diagnostic for the first invalid argument (in argument order) to stderr, prints nothing to stdout, and exits with status 3. Otherwise all launch values are applied together.
+* The launch values become the inputs' values in the base environment *E* (§8.1). `show`, `explain`, `impact`, `assert` and runtime errors behave as if the source literals had been those values; `whatif` reports them as its `BASE` values and still evaluates in a separate environment (§8.5.4). A valid launch value that makes a computation fail produces an ordinary runtime error (§9.3, exit status 2), not an argument error.
+* With no arguments, a program behaves and prints exactly as before revision 4. Repeated runs with the same source and the same arguments produce identical output; arguments are the only external input (no environment variables, no locale).
+
+Diagnostic format, on stderr:
+
+```
+FILE: argument error[CODE]: MESSAGE
+```
+
+| Code | Condition | Corresponds to |
+|---|---|---|
+| A101 | an argument other than `--set` (unknown option or positional argument) | — |
+| A102 | `--set` is the last argument, or its operand is not `NAME=VALUE` with a non-empty name and value | — |
+| A103 | `NAME` is not a declared binding | E301 |
+| A104 | `NAME` is a `let`, not an input | E303 |
+| A105 | the same input is set more than once | E305 |
+| A106 | `VALUE` is not a literal (`007`, `1e5`, `+5`, `0x10`, `nan`, `inf`, `True`, ` 1`, …) | E101, E102, E203 |
+| A107 | `VALUE`'s type does not fit the input (a float for an `int`, a number for a `bool`, a bool for a number) | E403 |
+| A108 | an integer literal whose magnitude exceeds 2^63 − 1 | E103 |
+| A109 | a float literal that rounds to infinity | E104 |
+
+For one argument, the checks run in this order: A102, A103, A104, A105, then the value (A106, A108, A109, then A107).
 
 ## 10. Error catalogue
 
@@ -521,6 +559,7 @@ The location is the `assert` keyword; `SOURCE` is the assertion expression as wr
 | R101 | runtime | division by zero |
 | R102 | runtime | integer overflow |
 | R103 | runtime | float result is infinite or NaN |
+| A101–A109 | launch | invalid launch argument; see §9.5 *(revision 4)* |
 
 ---
 
@@ -658,7 +697,8 @@ The following are explicitly **not** part of version 1. Programs using them are 
 |---|---|---|
 | Conditionals (`if … then … else`) | `if`/`then`/`else` reserved (E201) | Requires a decision between static (all-branch) and dynamic (taken-branch) dependencies; unresolved |
 | Loops, recursion, mutable variables | no syntax | would break the acyclic model |
-| Mutable or runtime-supplied inputs (CLI, environment, stdin) | not available | inputs vary only hypothetically via `whatif`; IR rules keep inputs as runtime values so launch-time overrides can be added later |
+| Mutable inputs; inputs from the environment, files or stdin | not available | launch arguments (`--set`, §9.5) were added in revision 4; inputs remain immutable during a run |
+| Launch-argument conveniences (`--help`, listing inputs, a `--` separator, several errors per run, marking launch-set inputs in `explain`) | not available | deferred in revision 4 |
 | User-defined functions | no syntax | |
 | Strings, collections | no syntax | |
 | Type annotations | `int`/`float`/`bool` reserved (E201) | literal-based inference retained (D02) |

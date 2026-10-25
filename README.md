@@ -38,7 +38,9 @@ Full list: [language-specification.md §13](docs/language-specification.md#13-de
 
 ## Current phase
 
-**Phase 7 — several overrides per `whatif` (implemented).** A hypothetical can now change several inputs at once, all applied together before anything is recomputed: `whatif price = 160, discount = 0.5 show total` ([language-specification §8.5](docs/language-specification.md), decision D24). A repeated input is rejected (E305), and a target must depend on at least one overridden input (E304). One-override statements behave and print exactly as before.
+**Phase 8 — launch arguments (implemented).** A compiled program can set inputs when it starts: `./pricing --set price=150 --set tax=0.2` ([language-specification §9.5](docs/language-specification.md), decision D25). Values follow the source literal rules, including int-to-float promotion. Invalid arguments are rejected before anything runs, with `argument error[A101–A109]` on stderr and exit status 3. Run without arguments, every program behaves and prints exactly as before.
+
+**Phase 7 — several overrides per `whatif`.** A hypothetical can now change several inputs at once, all applied together before anything is recomputed: `whatif price = 160, discount = 0.5 show total` ([language-specification §8.5](docs/language-specification.md), decision D24). A repeated input is rejected (E305), and a target must depend on at least one overridden input (E304). One-override statements behave and print exactly as before.
 
 **Phase 6 — runtime.** CAUSA programs compile end to end: the compiler checks a `.cau` program, lowers it to Causal IR, optimizes it while preserving every source-level binding and dependency, and generates C. A C compiler then builds that C together with the CAUSA runtime library into an executable. Every statement of language version 1 runs (`show`, `explain`, `whatif` in both forms, `impact`, `assert`, and runtime errors R101–R103), and the output of every runtime case in [tests/specification-cases.md](tests/specification-cases.md) is checked byte for byte by automated tests.
 
@@ -87,7 +89,13 @@ gcc -std=c99 -I causa/runtime pricing.c causa/runtime/causa_runtime.c -o pricing
 ./pricing
 ```
 
-The executable prints exactly the output in [language-specification §12](docs/language-specification.md#12-worked-example). It exits with status 0 on success, 1 if an assertion fails, and 2 on a runtime error; diagnostics go to stderr.
+The executable prints exactly the output in [language-specification §12](docs/language-specification.md#12-worked-example). To start it with different input values:
+
+```bash
+./pricing --set price=150 --set discount=0.3
+```
+
+It exits with status 0 on success, 1 if an assertion fails, 2 on a runtime error, and 3 on invalid launch arguments; diagnostics go to stderr.
 
 Diagnostics use the format `FILE:LINE:COLUMN: error[CODE]: MESSAGE`; for example `check examples/invalid-type-error.cau` reports `E401` at 8:19. The exit status is 0 on success, 1 on a CAUSA error, 2 on a command-line usage error or if a file cannot be read or written, and 3 if the backend cannot produce the requested output (`--standalone` with runtime-library statements). The compilation API is `causa.frontend.check(text)`, `compile_to_ir(text, source_file)`, `compile_optimized(text, source_file)` and `compile_to_c(text, source_file, standalone=False)`.
 
@@ -130,5 +138,5 @@ Possible next steps: a single `build`/`run` command that invokes the C compiler,
 * **R3 — Exact override typing.** *Resolved in revision 2 (D15):* integer literals now promote for `float` inputs.
 * **R4 — Counterfactual errors terminate.** *Resolved in revision 2 (D16):* hypothetical errors are reported as `error[…]` / `unavailable` outcomes and the program continues. Residual risk: error codes, locations and descriptions are now part of stdout, so they must be implemented identically in the runtime and any reference oracle.
 * **R5 — C toolchain on Windows.** The driver must find a C compiler (MSVC, MinGW, clang); its exact behavior is not yet specified.
-* **R6 — Inputs are only changeable through `whatif`.** Base input values are fixed in the source; launch-time overrides are deferred. The IR keeps inputs as runtime values so this can be added without redesign.
+* **R6 — Inputs are only changeable through `whatif`.** *Resolved in revision 4 (D25):* `--set NAME=VALUE` sets inputs at launch. Residual risk: the C literal parser must keep agreeing with the Python lexer; a differential test checks this.
 * **R7 — Static `whatif` target rule (D23).** A targeted `whatif` whose target stops depending on the input after a source edit becomes a compile error (E304). Intended, but it makes `whatif` statements sensitive to refactoring; the alternative (report `(independent)`) remains available if this proves too strict.

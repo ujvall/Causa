@@ -71,10 +71,14 @@ class LiteralAndIdentifierTests(unittest.TestCase):
 class TranslationTests(unittest.TestCase):
     def test_type_mapping_of_inputs(self) -> None:
         c = c_of("input i = 100", "input f = 0.25", "input b = true", "input n = -0.0")
-        self.assertIn("env[0].i = INT64_C(100);", case_body(c, 0))
-        self.assertIn("env[1].f = 0x1.0000000000000p-2 /* 0.25 */;", case_body(c, 1))
-        self.assertIn("env[2].b = true;", case_body(c, 2))
-        self.assertIn("env[3].f = -0x0.0p+0 /* -0.0 */;", case_body(c, 3))
+        # the launch value if one was given (LS §9.5), else the source literal
+        self.assertIn("env[0] = causa_input_value(CAUSA_BINDING_i, (causa_value){ .i = INT64_C(100) });",
+                      case_body(c, 0))
+        self.assertIn("env[1] = causa_input_value(CAUSA_BINDING_f, "
+                      "(causa_value){ .f = 0x1.0000000000000p-2 /* 0.25 */ });", case_body(c, 1))
+        self.assertIn("env[2] = causa_input_value(CAUSA_BINDING_b, (causa_value){ .b = true });", case_body(c, 2))
+        self.assertIn("env[3] = causa_input_value(CAUSA_BINDING_n, "
+                      "(causa_value){ .f = -0x0.0p+0 /* -0.0 */ });", case_body(c, 3))
 
     def test_operations(self) -> None:
         c = c_of("input i = 1", "input f = 0.5", "input b = true",
@@ -118,7 +122,7 @@ class TranslationTests(unittest.TestCase):
         text = src("input x = 1", "show x", "let y = x + 1", "show y", "assert y > 1")
         module = compile_optimized(text).module
         c = generate_c(module).source
-        main_body = c.split("int main(void)")[1]
+        main_body = c.split("int main(int argc, char **argv)")[1]
         expected = []
         for step in module.steps:
             if isinstance(step, Def):
@@ -206,8 +210,11 @@ class RuntimeInterfaceTests(unittest.TestCase):
         self.assertIn(" * Uses the CAUSA runtime library: causa_show, causa_explain, causa_impact, causa_whatif.\n", c)
         self.assertIn("causa_runtime.c -lm\n", c)
         # stream setup comes before any evaluation or output
-        main_body = c.split("int main(void)")[1]
+        main_body = c.split("int main(int argc, char **argv)")[1]
         self.assertLess(main_body.index("causa_init();"), main_body.index("causa_eval_node("))
+        # launch arguments are validated after stream setup and before the first statement
+        self.assertLess(main_body.index("causa_init();"), main_body.index("causa_configure(argc, argv);"))
+        self.assertLess(main_body.index("causa_configure(argc, argv);"), main_body.index("causa_eval_node("))
 
     def test_several_overrides_call(self) -> None:
         c = compile_to_c(src("input p = 100", "input d = 0.25", "input m = true", "let y = p * d",

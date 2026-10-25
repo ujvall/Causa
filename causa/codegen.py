@@ -169,7 +169,12 @@ class _Emitter:
 
     def _compute(self, node: Node) -> list[str]:
         out = f"env[{node.id}].{_MEMBER[node.type]}"
-        if node.kind in (NodeKind.INPUT, NodeKind.CONST):
+        if node.kind is NodeKind.INPUT:
+            # Base value: a launch value given with --set (LS §9.5), else the source literal.
+            default = f"(causa_value){{ .{_MEMBER[node.type]} = {c_literal(node.value, node.type)} }}"  # type: ignore[arg-type]
+            return [f"env[{node.id}] = causa_input_value({binding_identifier(node.name or '')}, {default});",
+                    "return CAUSA_OK;"]
+        if node.kind is NodeKind.CONST:
             return [f"{out} = {c_literal(node.value, node.type)};", "return CAUSA_OK;"]  # type: ignore[arg-type]
         if node.kind is NodeKind.BIND:
             return [f"env[{node.id}] = env[{node.operands[0]}];", "return CAUSA_OK;"]
@@ -255,9 +260,10 @@ class _Emitter:
         return "\n".join(lines)
 
     def _main(self) -> str:
-        lines = ["#ifndef CAUSA_NO_MAIN", "int main(void)", "{",
+        lines = ["#ifndef CAUSA_NO_MAIN", "int main(int argc, char **argv)", "{",
                  "    static causa_value env[CAUSA_NODE_SLOTS];", "    causa_error err;", "",
-                 "    causa_init();"]
+                 "    causa_init();",
+                 "    causa_configure(argc, argv); /* --set NAME=VALUE, validated before any statement */"]
         assert_index = 0
         for step in self.m.steps:
             lines.append(f"    {self._step(step, assert_index)}")

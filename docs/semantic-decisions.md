@@ -153,6 +153,12 @@ Each entry: **Decision** (chosen behavior), **Rationale**, **Alternatives** cons
 * **Alternatives:** override lines in declaration order; "last override wins" for a repeated input; keeping `,` as E101 outside `whatif` (would need a context-sensitive lexer).
 * **Implications:** The AST's `WhatIfStmt` holds a tuple of overrides. `SemanticProgram.overrides` maps a statement to a tuple. The IR `WhatIf` action holds a tuple of `OverrideValue`s. The runtime call becomes `causa_whatif(env, overrides, count, target, visible)` with `causa_override { input, value }`. A one-override `whatif` behaves and prints exactly as before. Spec case E36 (`whatif a = 1, b = 2`) is now valid (moved to M07); a comma in any other position changes from E101 to E201.
 
+### D25 — Launch arguments set inputs' base values *(new in revision 4, Phase 8)*
+* **Decision:** A compiled program accepts `--set NAME=VALUE`, repeatable, and nothing else. `VALUE` follows the rules of a `whatif` override literal (LS §3.5, §5.4, §8.5.1), including int-to-float promotion. Omitted inputs keep their source literals. All arguments are validated before the first statement; the first invalid one is reported as `FILE: argument error[A101–A109]: …` on stderr with exit status 3 and no stdout output. Valid values become the base environment's input values, so every statement, including `whatif`'s `BASE` values, sees them. A valid value that makes a computation fail is an ordinary runtime error (exit 2). The parser lives in `causa_runtime.h` (`causa_configure`, `causa_input_value`, `causa_parse_literal`), so header-only programs accept `--set` too.
+* **Rationale:** The IR kept inputs as runtime values for exactly this (D20, risk R6). Reusing the source literal rules and the override promotion keeps one definition of a value. `NAME=VALUE` as one argument avoids negative values being read as options. Rejecting duplicates mirrors E305. A separate exit status distinguishes a bad command line from a computation error (status 2). Validating everything first makes the launch configuration atomic.
+* **Alternatives:** `--set NAME VALUE`; `--NAME=VALUE` or bare `NAME=VALUE` (would collide with future options); last duplicate wins; exit status 2 or 64; parsing only in `causa_runtime.c` (would break header-only builds); environment variables or config files (deferred).
+* **Implications:** Generated `main` becomes `int main(int argc, char **argv)` and calls `causa_configure` right after `causa_init`; each input node's case becomes `env[id] = causa_input_value(binding, default)`. Arguments that were silently ignored before revision 4 now stop the program with A101. Programs run without arguments behave and print exactly as before. The C literal check must agree with the Python lexer; a differential test enforces it.
+
 ---
 
 ## Revision log
@@ -203,3 +209,13 @@ No language behavior changed and no error code was added.
 | D12, D15, D16, D23 | Unchanged in substance; they now apply to each override (D15), to the union cone (D12, D16) and to "at least one overridden input" (D23). |
 
 Affected documents: grammar (`whatif_stmt`, `,` operator), language specification §3.6, §8.5, §9.2, §10, §12, §13; compiler architecture §3.4, §3.7, §6.4, §6.5; examples/pricing.cau; tests/specification-cases.md (new §3b M-series; E36 moved).
+
+### Revision 4 (2026-10-25) — Phase 8
+
+| Decision | Change |
+|---|---|
+| D25 | New: launch arguments (`--set NAME=VALUE`), A101–A109, exit status 3. |
+| D20 | Its anticipated implication is now realised: launch values flow into input nodes at run time. |
+| — | Mutable inputs and inputs from the environment, files or stdin remain deferred. |
+
+Affected documents: language specification §1, §7.1, §9.4, §9.5 (new), §10, §13; compiler architecture §6.4, §6.5; README (risk R6 closed); tests/specification-cases.md (new §6c L-series).
