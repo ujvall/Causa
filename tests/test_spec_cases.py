@@ -262,7 +262,7 @@ class SpecificationCaseTests(unittest.TestCase):
 
     def test_front_end_cases(self) -> None:
         """Parse + semantic analysis + validated IR. Runtime and output
-        expectations are not checked: no backend exists yet."""
+        expectations are checked by test_runtime.py."""
         for case_id, (program, expected) in CASES.items():
             with self.subTest(case=case_id):
                 text = source_of(case_id, program)

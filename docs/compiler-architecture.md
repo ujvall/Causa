@@ -1,6 +1,6 @@
 # CAUSA Compiler Architecture — Version 1
 
-Status: **Phase 1 design contract.** No stage described here is implemented yet. Interfaces below define what each stage must provide; internal data structures may be refined in later phases as long as these contracts hold. Language semantics are defined in [language-specification.md](language-specification.md); this document never redefines them.
+Status: **Phase 1 design contract, implemented in Phases 2–8.** Interfaces below define what each stage must provide; internal data structures were refined in later phases as long as these contracts hold, and each "Implemented" section records the actual interface. *(Phase 9: the original status line said that no stage was implemented yet.)* Language semantics are defined in [language-specification.md](language-specification.md); this document never redefines them.
 
 ---
 
@@ -37,7 +37,7 @@ Errors from any frontend stage stop the pipeline before IR construction; no C is
 * Produces E201–E203.
 * Every AST node carries a source span (start line/column, end line/column). Each `let` and `assert` keeps its expression's **source text** (the exact characters between its first and last token), required by `explain` and assertion diagnostics.
 
-AST node set (one per grammar construct; implemented in `causa/astnodes.py`): `Program(statements)`, `InputDecl(name, value)`, `LetDecl(name, value, source_text)`, `ShowStmt(name)`, `ExplainStmt(name)`, `WhatIfStmt(name, value, target)` (`target` is absent for the full-report form), `ImpactStmt(name)`, `AssertStmt(condition, source_text)`, `Name(text)` for every binding-name argument, `Literal(type, value)`, `NameRef(name)`, `UnaryOp(op, operand)`, `BinaryOp(op, left, right)`. Every node has a span; operator nodes also record the operator token's span (for E401 and runtime error locations). Parentheses produce no node; a parenthesized expression's span is widened to include its parentheses. *(Phase 2: the revision 1 list lacked the `whatif` target and the `Name` node.)*
+AST node set (one per grammar construct; implemented in `causa/astnodes.py`): `Program(statements)`, `InputDecl(name, value)`, `LetDecl(name, value, source_text)`, `ShowStmt(name)`, `ExplainStmt(name)`, `WhatIfStmt(overrides, target)` with `overrides` a tuple of one or more `OverrideClause(name, value)` in statement order (`target` is absent for the full-report form; revision 3, D24), `ImpactStmt(name)`, `AssertStmt(condition, source_text)`, `Name(text)` for every binding-name argument, `Literal(type, value)`, `NameRef(name)`, `UnaryOp(op, operand)`, `BinaryOp(op, left, right)`. Every node has a span; operator nodes also record the operator token's span (for E401 and runtime error locations). Parentheses produce no node; a parenthesized expression's span is widened to include its parentheses. *(Phase 2: the revision 1 list lacked the `whatif` target and the `Name` node.)*
 
 ### 2.3 Semantic analysis
 
@@ -224,7 +224,7 @@ Allowed:
 
 Forbidden:
 
-* Removing, merging, or folding `input` or `bind` nodes. Inputs are override points and must remain runtime values (this also keeps launch-time overrides possible later). Unused lets are not removed: their evaluation can raise observable runtime errors.
+* Removing, merging, or folding `input` or `bind` nodes. Inputs are override points and must remain runtime values (this is what lets launch arguments set them at run time, §6.6). Unused lets are not removed: their evaluation can raise observable runtime errors.
 * Any rewrite that removes a reference to an anchor, even when algebraically valid (`x * 0 → 0`, `x - x → 0`, `b or true → true`). Such rewrites remove dependency edges.
 * Reordering a node definition across an action, or reordering two operations that can raise runtime errors. Stdout, stderr and exit status must be identical with and without optimization.
 * Changing any binding's `source_text`, `loc`, name, type, or declaration index.

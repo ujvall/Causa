@@ -1,4 +1,4 @@
-"""Command-line driver for the implemented compiler stages (Phases 2-5).
+"""Command-line driver for the CAUSA compiler.
 
     py -3.11 -m causa tokens FILE   token stream
     py -3.11 -m causa parse FILE    AST as S-expressions
@@ -35,12 +35,12 @@ from .semantic import BindingKind
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="causa", description="CAUSA compiler front end (no backend yet).")
+    ap = argparse.ArgumentParser(prog="causa", description="CAUSA compiler: checks .cau programs and generates C.")
     ap.add_argument("command", choices=["tokens", "parse", "check", "ir", "optimize", "emit-c"])
     ap.add_argument("file", type=Path)
     ap.add_argument("-o", "--output", type=Path, help="emit-c: write the C source to this file")
     ap.add_argument("--standalone", action="store_true",
-                    help="emit-c: fail if the program needs the (not yet implemented) runtime library")
+                    help="emit-c: fail if the program needs the runtime library (causa_runtime.c)")
     args = ap.parse_args(argv)
     if args.command != "emit-c" and (args.output or args.standalone):
         ap.error("-o/--output and --standalone apply only to emit-c")

@@ -1,0 +1,8 @@
+# Uses only input and let statements, so its generated C builds with
+# causa/runtime/causa_runtime.h alone (no causa_runtime.c); see docs/demonstration.md.
+# It prints nothing. Its exit status says whether every value could be computed:
+#   no arguments      exit 0
+#   --set units=0     runtime error R101 (division by zero) at 8:22, exit 2
+input total = 88.375
+input units = 4
+let per_unit = total / units
