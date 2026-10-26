@@ -38,3 +38,7 @@ python3 presentation/make_crops.py
 - Test counts: 205 passing (recorded Windows / MSYS2 UCRT64 GCC 16.1 run). The current suite has 257 tests: those 205 plus 52 Studio tests (counted from `tests/`).
 - Studio screenshots were captured on Linux (Xvfb, Python 3.12, Tk, GCC 13.3), the environment available when the deck was built. Replace them with Windows captures if preferred.
 - References were checked against publisher, library or official pages; see the appendix slide notes.
+
+## Design and fonts
+
+Matte black canvas (`09090A`), neutral grey text, cyan as the one chrome accent; graph and code colours are unchanged. Type is Inter (headings and body) with Consolas for code. Install Inter (free, rsms.me/inter) before presenting; without it PowerPoint substitutes another sans font and some text may wrap differently. The bundled PDF is rendered with Inter.

@@ -16,25 +16,25 @@ const OUT = path.join(HERE, "CAUSA_Final_Presentation.pptx");
 
 // ---------- palette and type ----------
 // Canvas (light) and chrome
-const PAPER = "F3F1EC", INK = "17181A", GREY = "5F6168", CARD = "FFFFFF", CARDLINE = "D8D4CA", ACC = "B23A1E";
+const PAPER = "09090A", INK = "ECECEE", GREY = "7C7C84", CARD = "121214", CARDLINE = "2B2B31", ACC = "22D3EE";
 // Dark figure panels (graphs, code, consoles, screenshots keep the original graph/code colours)
-const PANEL = "0F141B", SURF2 = "1B2430", LINE = "2A3644";
-const TXT = "E6EDF3", MUTED = "9AA8B6";
+const PANEL = "121214", SURF2 = "1C1C21", LINE = "2B2B31";
+const TXT = "ECECEE", MUTED = "8E8E96";
 const CYAN = "22D3EE", BLUE = "60A5FA", VIOLET = "A78BFA", TEAL = "2DD4BF", ORANGE = "FB923C", GREEN = "86EFAC", RED = "F87171";
 const BG = PANEL;
-const SANS = "Calibri", SERIF = "Cambria", MONO = "Courier New";
+const SANS = "Inter", SERIF = "Inter", MONO = "Consolas";
 // the same hues, darkened for use on the light canvas
 const CV = { [CYAN]: ACC, [ORANGE]: ACC, [TEAL]: "2B6B57", [GREEN]: "2B6B57", [BLUE]: "2F5D8A", [VIOLET]: "3B3A7A", [RED]: "A32020", [TXT]: INK, [MUTED]: GREY, [LINE]: CARDLINE, [BG]: INK };
 const cv = (c) => (c && CV[c] ? CV[c] : c);
 
 const THEME = {
-  name: "CAUSA Paper",
+  name: "CAUSA Matte",
   headFontFace: SERIF,
   bodyFontFace: SANS,
   colors: {
     dk1: INK, lt1: PAPER, dk2: PANEL, lt2: CARD,
-    accent1: ACC, accent2: "3B3A7A", accent3: "2B6B57", accent4: "2F5D8A", accent5: GREY, accent6: CARDLINE,
-    hlink: ACC, folHlink: "3B3A7A",
+    accent1: ACC, accent2: VIOLET, accent3: GREEN, accent4: BLUE, accent5: GREY, accent6: CARDLINE,
+    hlink: ACC, folHlink: VIOLET,
   },
 };
 
@@ -50,8 +50,7 @@ pres.defineSlideMaster({
   title: "CAUSA_CONTENT",
   background: { color: PAPER },
   objects: [
-    { placeholder: { options: { name: "title", type: "title", x: 0.6, y: 0.55, w: 12.13, h: 0.75, fontFace: SERIF, fontSize: 32, bold: true, color: INK, align: "left", valign: "top", margin: 0 }, text: "" } },
-    { text: { text: "CAUSA  ·  Compiler Design Project", options: { x: 0.6, y: 7.05, w: 6, h: 0.3, fontFace: SANS, fontSize: 10, color: GREY, margin: 0 } } },
+    { placeholder: { options: { name: "title", type: "title", x: 0.6, y: 0.4, w: 12.13, h: 0.75, fontFace: SANS, fontSize: 28, bold: true, color: INK, align: "left", valign: "top", margin: 0, charSpacing: -0.5 }, text: "" } },
   ],
   slideNumber: { x: 12.13, y: 7.05, w: 0.6, h: 0.3, fontFace: SANS, fontSize: 10, color: GREY, align: "right" },
 });
@@ -67,29 +66,27 @@ function panel(slide, x, y, w, h, o = {}) {
   slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.08, fill: { color: PANEL }, line: o.line || { color: PANEL, width: 1 }, objectName: oid("panel") });
 }
 function T(slide, text, x, y, w, h, o = {}) {
-  const dark = inDark(x + w / 2, y + h / 2);
+  const dark = true;
   const opts = Object.assign({ x, y, w, h, fontFace: SANS, fontSize: 16, margin: 0, valign: "top", isTextBox: true, objectName: oid("text") }, o);
   const fix = (c) => (dark ? c : cv(c));
   opts.color = o.color ? fix(o.color) : dark ? TXT : INK;
-  if (!dark && !o.fontFace && opts.fontSize >= 26) opts.fontFace = SERIF;
   if (Array.isArray(text)) text = text.map((r) => (r.options && r.options.color ? Object.assign({}, r, { options: Object.assign({}, r.options, { color: fix(r.options.color) }) }) : r));
   slide.addText(text, opts);
 }
 function card(slide, x, y, w, h, o = {}) {
   const dark = inDark(x + w / 2, y + h / 2);
   let line, fill;
-  if (dark) { fill = SURF2; line = o.line || { color: LINE, width: 1 }; }
-  else { fill = CARD; line = o.line ? { color: cv(o.line.color), width: o.line.width || 1 } : { color: CARDLINE, width: 1 }; }
+  fill = dark ? SURF2 : CARD; line = o.line || { color: LINE, width: 1 };
   slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.08, fill: { color: fill }, line, objectName: oid("card") });
 }
 function chip(slide, text, x, y, w, h, color, o = {}) {
-  const dark = inDark(x + w / 2, y + h / 2);
+  const dark = true;
   const c = dark ? color : cv(color);
   slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: h / 2, fill: { color: dark ? PANEL : CARD }, line: { color: c, width: 1 }, objectName: oid("chip") });
   T(slide, text, x, y, w, h, Object.assign({ fontSize: 12, color, align: "center", valign: "middle", bold: true }, o));
 }
 function arrow(slide, x1, y1, x2, y2, color = MUTED, width = 1.5, head = true) {
-  const dark = inDark((x1 + x2) / 2, (y1 + y2) / 2);
+  const dark = true;
   const c = dark ? color : (color === MUTED || color === "5B6B7B" ? GREY : cv(color));
   slide.addShape(pres.ShapeType.line, {
     x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
@@ -148,7 +145,7 @@ function contentSlide(section, text, notes) {
   DARKS = [];
   const s = pres.addSlide({ masterName: "CAUSA_CONTENT", sectionTitle: section });
   title(s, text);
-  T(s, section.toUpperCase(), 0.6, 0.28, 8, 0.25, { fontSize: 11, bold: true, color: ACC, charSpacing: 3 });
+  T(s, "CAUSA   " + section, 0.6, 7.05, 6, 0.3, { fontSize: 10, color: GREY });
   s.addNotes(notes);
   return s;
 }
@@ -160,8 +157,8 @@ pres.addSection({ title: "Opening" });
 {
   DARKS = [];
   const s = pres.addSlide({ masterName: "CAUSA_TITLE", sectionTitle: "Opening" });
-  T(s, "CAUSA", 0.8, 1.55, 7, 1.6, { fontSize: 96, bold: true, valign: "middle" });
-  T(s, "A Compiler for Explainable and Counterfactual Programming", 0.8, 3.25, 6.6, 1.2, { fontSize: 26, italic: true, color: ACC });
+  T(s, "CAUSA", 0.8, 1.55, 7, 1.6, { fontSize: 96, bold: true, valign: "middle", charSpacing: -2 });
+  T(s, "A Compiler for Explainable and Counterfactual Programming", 0.8, 3.25, 6.6, 1.2, { fontSize: 24, color: MUTED });
   T(s, "Compiler Design Project  ·  Final Review", 0.8, 4.6, 6.6, 0.4, { fontSize: 18 });
   T(s, [
     { text: "[Student name]   ·   [Registration number]", options: { breakLine: true } },
@@ -230,7 +227,7 @@ pres.addSection({ title: "Problem and idea" });
     ["Source-level dependency awareness", "Each binding records the names its expression uses.", "semantic.py · ir.py"],
     ["Explainable calculations", "explain prints a derivation tree with values and source expressions.", "runtime: causa_explain"],
     ["Impact analysis", "impact lists direct and all dependents, known statically.", "runtime: causa_impact"],
-    ["Isolated counterfactuals", "whatif recomputes in a separate environment; real values stay.", "runtime: causa_whatif"],
+    ["Isolated what-ifs", "whatif recomputes in a separate environment; real values stay.", "runtime: causa_whatif"],
     ["Native executables", "A Python compiler emits C99; a system C compiler builds the program.", "codegen.py · runtime"],
   ];
   O.forEach(([h, d, tag], i) => {
@@ -266,7 +263,7 @@ pres.addSection({ title: "Problem and idea" });
     T(s, conv, 3.9, y, 4.2, 1.0, { fontSize: 15, color: MUTED, valign: "middle" });
     T(s, [{ text: op, options: { fontFace: MONO, bold: true, color: VIOLET, fontSize: 15, breakLine: true } }, { text: desc, options: { fontSize: 14, color: TXT } }], 8.5, y, 4.1, 1.0, { valign: "middle" });
   });
-  T(s, "Conventional tools can do all of this. CAUSA makes it explicit and built into the language and runtime.", 0.6, 6.5, 12.13, 0.4, { fontSize: 15, italic: true, color: MUTED });
+  T(s, "Conventional tools can do all of this. CAUSA makes it explicit and built into the language and runtime.", 0.6, 6.5, 12.13, 0.4, { fontSize: 15, color: MUTED });
 }
 
 // =====================================================================
@@ -294,7 +291,7 @@ explain total
 whatif price = 160 show total
 impact price`, 15));
   card(s, 0.6, 6.15, 12.13, 0.7, { line: { color: ACC, width: 1.5 } });
-  T(s, "A custom language and compiler (Python → C99 → native executable): not a Python library, not a graph viewer.", 0.85, 6.15, 11.7, 0.7, { fontSize: 16, bold: true, valign: "middle" });
+  T(s, "A custom language and compiler (Python → C99 → native executable): not a Python library, not a graph viewer.", 0.85, 6.15, 11.7, 0.7, { fontSize: 15, bold: true, valign: "middle" });
 }
 
 // =====================================================================
@@ -322,7 +319,7 @@ impact price`, 15));
       if (k < refs.length - 1) lines.push({ text: " ", options: { fontSize: 10, breakLine: true } });
     });
     T(s, lines, x + 0.2, 2.35, w - 0.4, 3.0, {});
-    T(s, rel, x + 0.2, 5.3, w - 0.4, 0.55, { fontSize: 14, italic: true, color: TXT, valign: "bottom" });
+    T(s, rel, x + 0.2, 5.3, w - 0.4, 0.55, { fontSize: 14, color: TXT, valign: "bottom" });
   });
   T(s, "CAUSA builds on established ideas; its contribution is integrating them into one language, compiler and runtime workflow.", 0.6, 6.25, 12.13, 0.6, { fontSize: 16, bold: true });
 }
@@ -369,7 +366,7 @@ pres.addSection({ title: "Architecture" });
     arrow(s, x + 0.72, 5.3, x + 0.72, 5.55, TEAL, 1.2, false);
     chip(s, c, x, 5.55, 1.45, 0.4, TEAL, { fontFace: MONO, fontSize: 12 });
   });
-  T(s, "Dependencies are computed at compile time and embedded as metadata; the executable records values.", 0.6, 6.4, 12.13, 0.4, { fontSize: 15, italic: true, color: GREY });
+  T(s, "Dependencies are computed at compile time and embedded as metadata; the executable records values.", 0.6, 6.4, 12.13, 0.4, { fontSize: 15, color: GREY });
 }
 
 // =====================================================================
@@ -730,7 +727,7 @@ pres.addSection({ title: "Closing" });
   const cols = [
     ["Completed", TEAL, ["Language v1: inputs, lets, show, explain, whatif, impact, assert", "Causal IR with verified, dependency-preserving optimizer", "C99 backend and C runtime", "Launch-time --set inputs", "CAUSA Studio desktop app"]],
     ["Limitations today", ORANGE, ["Generated C validated on Windows + MSYS2 UCRT64 GCC only", "No conditionals, loops, functions, strings, collections", "Front end grows faster than linear on long chains", "C compiler dominates build time", "Studio: one file at a time, no launch values"]],
-    ["Future work (not implemented)", VIOLET, ["Test Linux, macOS, Clang, MSVC", "One command to build and run", "Deferred language features", "Studio usability and visualization", "Broader performance evaluation"]],
+    ["Not built yet", VIOLET, ["Test Linux, macOS, Clang, MSVC", "One command to build and run", "Deferred language features", "Studio usability and visualization", "Broader performance evaluation"]],
   ];
   cols.forEach(([h, c, items], i) => {
     const x = 0.6 + i * 4.1;
