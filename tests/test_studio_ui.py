@@ -79,11 +79,21 @@ class StudioWindowTests(unittest.TestCase):
         self.app.console.clear()
         self.app.run()
         self.pump(lambda: self.app.last_run is not None)
+        text = self.app.console.contents()  # formatted: labelled blocks, a tree, aligned tables
+        self.assertIn("show      total = 88.375", text)
+        self.assertIn("          ├── subtotal = 75.0           price - savings", text)
+        self.assertIn("what-if   price = 160, discount = 0.5   showing total", text)
+        self.assertIn("✓  exit 0 · success", text)
+        self.assertRegex(text, r"compile \d+ ms  ·  C build \d+ ms  ·  run \d+ ms")
+        self.assertEqual(self.app.exec_label.cget("text"), "Exit 0: success")
+        self.app.console.raw.set(True)  # Raw output: exactly what the program printed
+        self.app.console.redraw()
         text = self.app.console.contents()
         self.assertIn(SPEC_OUTPUT, text + "\n")
         self.assertIn("■ Exit code 0 (success)", text)
-        self.assertRegex(text, r"compile \d+ ms  ·  C build \d+ ms  ·  run \d+ ms")
-        self.assertEqual(self.app.exec_label.cget("text"), "Exit 0: success")
+        self.app.console.raw.set(False)
+        self.app.console.redraw()
+        self.assertIn("show      total = 88.375", self.app.console.contents())
 
     def test_compile_error_is_located_in_the_editor(self) -> None:
         self.replace_source("input price = 100\nlet total = price + true\nshow total\n")
@@ -93,6 +103,11 @@ class StudioWindowTests(unittest.TestCase):
         if CC:
             self.app.run()
             self.pump(lambda: self.app.last_run is not None)
+            self.assertIn("error     E401  line 2, column 19   operator '+' requires numeric operands",
+                          self.app.console.contents())
+            self.assertIn("✕  compile error · no program was built", self.app.console.contents())
+            self.app.console.raw.set(True)
+            self.app.console.redraw()
             self.assertIn("pricing.cau:2:19: error[E401]", self.app.console.contents())
             self.assertIn("✕ Compile error: no program was built.", self.app.console.contents())
 
@@ -102,8 +117,8 @@ class StudioWindowTests(unittest.TestCase):
         self.app.run()
         self.pump(lambda: self.app.last_run is not None)
         self.assertEqual(self.app.last_run.exit_code, 2)
-        self.assertIn("pricing.cau:2:12: runtime error[R101]: division by zero", self.app.console.contents())
-        self.assertIn("■ Exit code 2 (runtime error)", self.app.console.contents())
+        self.assertIn("error     R101  line 2, column 12   division by zero", self.app.console.contents())
+        self.assertIn("✕  exit 2 · runtime error", self.app.console.contents())
         self.assertEqual(self.app.editor.text.tag_ranges("error")[0].string, "2.11")
         self.app.last_run = None
         self.replace_source("input d = 4\nlet q = 10 / d\nshow q\n")

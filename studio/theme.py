@@ -103,6 +103,10 @@ def apply(root: tk.Tk) -> Fonts:
     style.map("Accent.TButton", background=[("disabled", BG), ("pressed", "#2c3b60"), ("active", "#26345a")],
               foreground=[("disabled", FAINT)])
 
+    style.configure("Bar.TCheckbutton", background=RAISED, foreground=MUTED, indicatorbackground=SURFACE,
+                    indicatorforeground=ACCENT, indicatormargin=(0, 0, 6, 0), padding=(6, 4), font=fonts.ui_small)
+    style.map("Bar.TCheckbutton", background=[("active", RAISED)], foreground=[("active", TEXT)],
+              indicatorbackground=[("selected", SELECT), ("active", HOVER)])
     style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(8, 6, 8, 0))
     style.configure("TNotebook.Tab", background=BG, foreground=MUTED, padding=(14, 6), borderwidth=0)
     style.map("TNotebook.Tab", background=[("selected", SURFACE)], foreground=[("selected", TEXT)],

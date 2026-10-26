@@ -54,7 +54,7 @@ class CodeEditor(ttk.Frame):
         self.on_change = on_change
         self.on_cursor = on_cursor
         self.gutter = tk.Canvas(self, width=52, background=theme.SURFACE, highlightthickness=0, borderwidth=0)
-        self.text = tk.Text(self, wrap="none", undo=True, maxundo=-1, autoseparators=True, padx=10, pady=8,
+        self.text = tk.Text(self, wrap="none", undo=True, maxundo=-1, autoseparators=True, padx=10, pady=8, height=8,
                             spacing1=2, spacing3=2, tabs=(fonts.mono.measure(INDENT),),
                             **theme.text_options(fonts))
         ybar = ttk.Scrollbar(self, orient="vertical", command=self.text.yview)

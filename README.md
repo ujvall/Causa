@@ -220,11 +220,11 @@ Possible next steps: a single `build`/`run` command that invokes the C compiler,
 | [docs/demonstration.md](docs/demonstration.md) | guided demonstration with exact outputs |
 | [docs/evaluation.md](docs/evaluation.md) | measurements and how to reproduce them |
 | [docs/studio.md](docs/studio.md) | CAUSA Studio desktop application: usage, architecture, packaging, limitations |
-| [studio/](studio/) | CAUSA Studio (Tkinter): `service.py` (compiler and process integration), `app.py`, `editor.py`, `console.py`, `graph.py`, `panels.py`, `theme.py`; packaging in [packaging/](packaging/) |
+| [studio/](studio/) | CAUSA Studio (Tkinter): `service.py` (compiler and process integration), `app.py`, `editor.py`, `console.py`, `format.py`, `graph.py`, `panels.py`, `theme.py`; packaging in [packaging/](packaging/) |
 | [tests/specification-cases.md](tests/specification-cases.md) | specification test cases with expected outcomes |
 | [examples/](examples/) | `minimal.cau`, `pricing.cau` (the demonstration program), `unit-price.cau` (header-only build), `invalid-type-error.cau` (intentionally invalid) |
 | [causa/](causa/) | compiler package: `lexer.py`, `parser.py`, `astnodes.py`, `semantic.py`, `ir.py`, `optimizer.py`, `codegen.py`, `frontend.py`, `diagnostics.py`, CLI in `__main__.py`; runtime in `runtime/causa_runtime.h` and `runtime/causa_runtime.c` |
-| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_optimizer.py`, `test_codegen.py`, `test_runtime.py`, `test_launch.py`, `test_demo.py`, `test_spec_cases.py`, `test_studio_service.py`, `test_studio_ui.py` |
+| [tests/](tests/) | `test_lexer.py`, `test_parser.py`, `test_semantic.py`, `test_ir.py`, `test_optimizer.py`, `test_codegen.py`, `test_runtime.py`, `test_launch.py`, `test_demo.py`, `test_spec_cases.py`, `test_studio_service.py`, `test_studio_format.py`, `test_studio_ui.py` |
 | [benchmarks/benchmark.py](benchmarks/benchmark.py) | evaluation script |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Git workflow and sole-contributor rules |
 

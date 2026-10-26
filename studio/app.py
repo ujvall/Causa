@@ -4,6 +4,7 @@ service.Session on worker threads (service.Runner); this module only reacts to r
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -13,6 +14,7 @@ from causa.diagnostics import CausaError
 from . import theme
 from .console import Console
 from .editor import CodeEditor
+from .format import format_output, format_stderr
 from .graph import GraphView
 from .panels import ExplainPanel, ImpactPanel, WhatIfPanel
 from .service import (EXIT_MEANING, Outcome, Runner, Session, binding_statement, python_description, read_file,
@@ -45,8 +47,7 @@ class StudioApp:
         self.last_run: Outcome | None = None
         self._build()
         self._icon()
-        self.console.line("Press ▶ Run (F5) to compile and run the program. Output, diagnostics and exit codes "
-                          "appear here.", "info")
+        self.console.add(lambda c, raw: c.line("Press ▶ Run (F5) to compile and run the program.", "info"))
         root.protocol("WM_DELETE_WINDOW", self.quit)
         theme.dark_title_bar(root)
         if path:
@@ -99,8 +100,8 @@ class StudioApp:
         self.editor = CodeEditor(left, self.fonts, on_change=self._edited,
                                  on_cursor=lambda l, c: self.cursor_label.configure(text=f"Ln {l}, Col {c}"))
         self.console = Console(left, self.fonts, on_location=self.goto)
-        left.add(self.editor, weight=3)
-        left.add(self.console, weight=2)
+        left.add(self.editor, weight=1)
+        left.add(self.console, weight=1)
         self.tabs = ttk.Notebook(main)
         self.graph_view = GraphView(self.tabs, self.fonts, on_select=self.select_binding)
         self.explain = ExplainPanel(self.tabs, self.fonts, self.query, self.select_binding, self.goto)
@@ -325,8 +326,8 @@ class StudioApp:
     def run(self) -> None:
         if self.runner.busy("run"):
             return
-        self.console.heading(f"▶  Run  {self.name}")
-        self.console.line("Compiling with the CAUSA compiler, building with the C compiler, then running …", "info")
+        title, stamp = f"Run  {self.name}", time.strftime("%H:%M:%S")
+        self.console.add(lambda c, raw: c.heading(title, stamp))
         self._set_exec("Building and running…", "StatusBusy.TLabel")
         request = self.runner.submit("run", self.session.run, self.editor.get_text(), self.name)
         self.pending[request] = (self.version, "run")
@@ -383,8 +384,11 @@ class StudioApp:
         text = label if verb == "whatif" else f"{verb} {label}"
         status = ("stopped" if outcome.stage == "cancelled" else f"exit {outcome.exit_code}"
                   if outcome.stage == "run" else f"{outcome.stage} failed")
-        tag = "info" if outcome.ok else "warn"
-        self.console.line(f"◆ {text}  ·  {status}  ·  {self._timings(outcome)}", tag)
+        line = [("◆  ", "muted"), (text, "name" if outcome.ok else "warn"),
+                (f"   {self._panel_names[verb]} panel  ·  {status}  ·  {self._timings(outcome)}", "time")]
+        self.console.add(lambda c, raw: (c.write("\n"), c.spans(line)))
+
+    _panel_names = {"explain": "Explain", "impact": "Impact", "whatif": "What-if"}
 
     @staticmethod
     def _timings(outcome: Outcome) -> str:
@@ -393,45 +397,66 @@ class StudioApp:
 
     def _show_run(self, outcome: Outcome) -> None:
         self.last_run = outcome
-        c = self.console
         self.editor.clear_errors()
         if outcome.graph is not None:
             self._set_graph(outcome.graph)
+        for d in outcome.diagnostics:
+            if d.line:
+                self.editor.mark_error(d.line, d.column)
+        code = outcome.exit_code
+        meaning = EXIT_MEANING.get(code, "unexpected status")
+        status = {"compile": ("Compile error", "StatusBad.TLabel"), "build": ("Build failed", "StatusBad.TLabel"),
+                  "cancelled": ("Stopped", "Status.TLabel")}.get(
+            outcome.stage, (f"Exit {code}: {meaning}", "StatusOk.TLabel" if code == 0 else "StatusBad.TLabel"))
+        self._set_exec(*status)
+        timings = self._timings(outcome)
+        self.console.add(lambda c, raw: self._render_run(c, raw, outcome, timings))
+
+    @staticmethod
+    def _render_run(c: Console, raw: bool, outcome: Outcome, timings: str) -> None:
+        """One run's result: formatted, or exactly as printed (raw)."""
         if outcome.stage == "compile":
             for d in outcome.diagnostics:
-                if d.line:
-                    self.editor.mark_error(d.line, d.column)
-                    c.location(d.message, d.line, d.column, "compile")
+                if raw or not d.line:
+                    c.location(d.message, d.line, d.column, "compile") if d.line else c.line(d.message, "compile")
                 else:
-                    c.line(d.message, "compile")
-            c.line("✕ Compile error: no program was built.", "compile")
-            self._set_exec("Compile error", "StatusBad.TLabel")
+                    spans, where = format_stderr(d.message)[0]
+                    c.spans(spans, where)
+            c.line("✕ Compile error: no program was built." if raw else "\n✕  compile error · no program was built",
+                   "compile")
         elif outcome.stage == "build":
             for d in outcome.diagnostics:
                 c.line(d.message, "warn")
             if outcome.stderr:
                 c.line(outcome.stderr.rstrip(), "info")
-            self._set_exec("Build failed", "StatusBad.TLabel")
         elif outcome.stage == "cancelled":
             c.line("■ Stopped. The build or the program was terminated.", "warn")
-            self._set_exec("Stopped", "Status.TLabel")
-        else:
+        elif raw:
             if outcome.stdout:
                 c.write(outcome.stdout, "out")
             located = {d.message: d for d in outcome.diagnostics if d.line}
             for line in outcome.stderr.splitlines():
                 d = located.get(line)
-                if d:
-                    self.editor.mark_error(d.line, d.column)
-                    c.location(line, d.line, d.column, "runtime")
-                else:
-                    c.line(line, "runtime")
+                c.location(line, d.line, d.column, "runtime") if d else c.line(line, "runtime")
+        else:
+            for spans in format_output(outcome.stdout):
+                c.spans(spans)
+            if outcome.stderr:
+                if outcome.stdout:
+                    c.write("\n")
+                for spans, where in format_stderr(outcome.stderr):
+                    c.spans(spans, where)
+        if outcome.stage == "run":
             code = outcome.exit_code
             meaning = EXIT_MEANING.get(code, "unexpected status")
-            c.line(f"■ Exit code {code} ({meaning})", "ok" if code == 0 else "runtime")
-            self._set_exec(f"Exit {code}: {meaning}", "StatusOk.TLabel" if code == 0 else "StatusBad.TLabel")
-        if outcome.timings:
-            c.line(self._timings(outcome), "time")
+            if raw:
+                c.line(f"■ Exit code {code} ({meaning})", "ok" if code == 0 else "runtime")
+            else:
+                c.write("\n")
+                c.spans([("✓  " if code == 0 else "✕  ", "ok" if code == 0 else "error"),
+                         (f"exit {code} · {meaning}", "ok" if code == 0 else "error")])
+        if timings:
+            c.line(timings, "time")
 
     def about(self) -> None:
         messagebox.showinfo("About CAUSA Studio",
