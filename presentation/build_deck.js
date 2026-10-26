@@ -15,67 +15,89 @@ const ASSETS = path.join(HERE, "assets");
 const OUT = path.join(HERE, "CAUSA_Final_Presentation.pptx");
 
 // ---------- palette and type ----------
-const BG = "0B0F14", SURF = "131A22", SURF2 = "1B2430", LINE = "2A3644";
+// Canvas (light) and chrome
+const PAPER = "F3F1EC", INK = "17181A", GREY = "5F6168", CARD = "FFFFFF", CARDLINE = "D8D4CA", ACC = "B23A1E";
+// Dark figure panels (graphs, code, consoles, screenshots keep the original graph/code colours)
+const PANEL = "0F141B", SURF2 = "1B2430", LINE = "2A3644";
 const TXT = "E6EDF3", MUTED = "9AA8B6";
 const CYAN = "22D3EE", BLUE = "60A5FA", VIOLET = "A78BFA", TEAL = "2DD4BF", ORANGE = "FB923C", GREEN = "86EFAC", RED = "F87171";
-const SANS = "Calibri", MONO = "Courier New";
+const BG = PANEL;
+const SANS = "Calibri", SERIF = "Cambria", MONO = "Courier New";
+// the same hues, darkened for use on the light canvas
+const CV = { [CYAN]: ACC, [ORANGE]: ACC, [TEAL]: "2B6B57", [GREEN]: "2B6B57", [BLUE]: "2F5D8A", [VIOLET]: "3B3A7A", [RED]: "A32020", [TXT]: INK, [MUTED]: GREY, [LINE]: CARDLINE, [BG]: INK };
+const cv = (c) => (c && CV[c] ? CV[c] : c);
 
 const THEME = {
-  name: "CAUSA Dark",
-  headFontFace: SANS,
+  name: "CAUSA Paper",
+  headFontFace: SERIF,
   bodyFontFace: SANS,
   colors: {
-    dk1: BG, lt1: TXT, dk2: SURF, lt2: MUTED,
-    accent1: CYAN, accent2: VIOLET, accent3: TEAL, accent4: ORANGE, accent5: BLUE, accent6: GREEN,
-    hlink: CYAN, folHlink: VIOLET,
+    dk1: INK, lt1: PAPER, dk2: PANEL, lt2: CARD,
+    accent1: ACC, accent2: "3B3A7A", accent3: "2B6B57", accent4: "2F5D8A", accent5: GREY, accent6: CARDLINE,
+    hlink: ACC, folHlink: "3B3A7A",
   },
 };
 
 const pres = new pptxgen();
 pres.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
-pres.theme = { headFontFace: SANS, bodyFontFace: SANS };
+pres.theme = { headFontFace: SERIF, bodyFontFace: SANS };
 pres.title = "CAUSA - A Compiler for Explainable and Counterfactual Programming";
 pres.subject = "Compiler Design project - final review";
 pres.author = "";
 
-pres.defineSlideMaster({
-  title: "CAUSA_TITLE",
-  background: { color: BG },
-  objects: [],
-});
+pres.defineSlideMaster({ title: "CAUSA_TITLE", background: { color: PAPER }, objects: [] });
 pres.defineSlideMaster({
   title: "CAUSA_CONTENT",
-  background: { color: BG },
+  background: { color: PAPER },
   objects: [
-    { placeholder: { options: { name: "title", type: "title", x: 0.6, y: 0.38, w: 12.13, h: 0.85, fontFace: SANS, fontSize: 34, bold: true, color: TXT, align: "left", valign: "top", margin: 0 }, text: "" } },
-    { text: { text: "CAUSA  ·  Compiler Design Project", options: { x: 0.6, y: 7.05, w: 6, h: 0.3, fontFace: SANS, fontSize: 10, color: MUTED, margin: 0 } } },
+    { placeholder: { options: { name: "title", type: "title", x: 0.6, y: 0.55, w: 12.13, h: 0.75, fontFace: SERIF, fontSize: 32, bold: true, color: INK, align: "left", valign: "top", margin: 0 }, text: "" } },
+    { text: { text: "CAUSA  ·  Compiler Design Project", options: { x: 0.6, y: 7.05, w: 6, h: 0.3, fontFace: SANS, fontSize: 10, color: GREY, margin: 0 } } },
   ],
-  slideNumber: { x: 12.13, y: 7.05, w: 0.6, h: 0.3, fontFace: SANS, fontSize: 10, color: MUTED, align: "right" },
+  slideNumber: { x: 12.13, y: 7.05, w: 0.6, h: 0.3, fontFace: SANS, fontSize: 10, color: GREY, align: "right" },
 });
 
 // ---------- helpers ----------
 let n = 0;
 const oid = (s) => `${s}-${++n}`;
+let DARKS = []; // dark panels on the current slide: text and cards placed over them use light-on-dark styling
+const inDark = (cx, cy) => DARKS.some((r) => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h);
 
+function panel(slide, x, y, w, h, o = {}) {
+  DARKS.push({ x, y, w, h });
+  slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.08, fill: { color: PANEL }, line: o.line || { color: PANEL, width: 1 }, objectName: oid("panel") });
+}
 function T(slide, text, x, y, w, h, o = {}) {
-  slide.addText(text, Object.assign({ x, y, w, h, fontFace: SANS, fontSize: 16, color: TXT, margin: 0, valign: "top", isTextBox: true, objectName: oid("text") }, o));
+  const dark = inDark(x + w / 2, y + h / 2);
+  const opts = Object.assign({ x, y, w, h, fontFace: SANS, fontSize: 16, margin: 0, valign: "top", isTextBox: true, objectName: oid("text") }, o);
+  const fix = (c) => (dark ? c : cv(c));
+  opts.color = o.color ? fix(o.color) : dark ? TXT : INK;
+  if (!dark && !o.fontFace && opts.fontSize >= 26) opts.fontFace = SERIF;
+  if (Array.isArray(text)) text = text.map((r) => (r.options && r.options.color ? Object.assign({}, r, { options: Object.assign({}, r.options, { color: fix(r.options.color) }) }) : r));
+  slide.addText(text, opts);
 }
 function card(slide, x, y, w, h, o = {}) {
-  slide.addShape(pres.ShapeType.roundRect, Object.assign({ x, y, w, h, rectRadius: 0.08, fill: { color: SURF }, line: { color: LINE, width: 1 }, objectName: oid("card") }, o));
+  const dark = inDark(x + w / 2, y + h / 2);
+  let line, fill;
+  if (dark) { fill = SURF2; line = o.line || { color: LINE, width: 1 }; }
+  else { fill = CARD; line = o.line ? { color: cv(o.line.color), width: o.line.width || 1 } : { color: CARDLINE, width: 1 }; }
+  slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.08, fill: { color: fill }, line, objectName: oid("card") });
 }
 function chip(slide, text, x, y, w, h, color, o = {}) {
-  slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: h / 2, fill: { color: BG }, line: { color, width: 1 }, objectName: oid("chip") });
+  const dark = inDark(x + w / 2, y + h / 2);
+  const c = dark ? color : cv(color);
+  slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: h / 2, fill: { color: dark ? PANEL : CARD }, line: { color: c, width: 1 }, objectName: oid("chip") });
   T(slide, text, x, y, w, h, Object.assign({ fontSize: 12, color, align: "center", valign: "middle", bold: true }, o));
 }
 function arrow(slide, x1, y1, x2, y2, color = MUTED, width = 1.5, head = true) {
+  const dark = inDark((x1 + x2) / 2, (y1 + y2) / 2);
+  const c = dark ? color : (color === MUTED || color === "5B6B7B" ? GREY : cv(color));
   slide.addShape(pres.ShapeType.line, {
     x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
     flipH: x2 < x1, flipV: y2 < y1,
-    line: Object.assign({ color, width }, head ? { endArrowType: "triangle" } : {}),
+    line: Object.assign({ color: c, width }, head ? { endArrowType: "triangle" } : {}),
     objectName: oid("arrow"),
   });
 }
-const KIND = { input: GREEN, let: BLUE, ir: VIOLET, front: CYAN, back: TEAL, warn: ORANGE, muted: LINE };
 function node(slide, x, y, w, h, label, color, sub, fill = SURF2, size = 15) {
   slide.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.06, fill: { color: fill }, line: { color, width: 1.5 }, objectName: oid("node") });
   if (sub) {
@@ -86,7 +108,7 @@ function node(slide, x, y, w, h, label, color, sub, fill = SURF2, size = 15) {
   }
 }
 
-// CAUSA syntax highlighting -> pptxgenjs text runs
+// CAUSA syntax highlighting -> pptxgenjs text runs (colours unchanged; always used on dark panels)
 const KEYWORDS = new Set(["input", "let", "show", "explain", "whatif", "impact", "assert"]);
 function highlight(src, size = 15) {
   const runs = [];
@@ -110,7 +132,6 @@ function highlight(src, size = 15) {
   });
   return runs;
 }
-// plain console text with a colour per line
 function consoleRuns(lines, size = 13) {
   return lines.map((l, i) => {
     const [text, color] = Array.isArray(l) ? l : [l, TXT];
@@ -118,14 +139,16 @@ function consoleRuns(lines, size = 13) {
   });
 }
 function codeCard(slide, x, y, w, h, label, runs) {
-  card(slide, x, y, w, h, { fill: { color: "0E141B" } });
+  panel(slide, x, y, w, h);
   if (label) T(slide, label, x + 0.25, y + 0.15, w - 0.5, 0.3, { fontSize: 11, color: MUTED, bold: true, charSpacing: 1 });
   T(slide, runs, x + 0.25, y + (label ? 0.5 : 0.25), w - 0.5, h - (label ? 0.65 : 0.4), { valign: "top", paraSpaceAfter: 2 });
 }
 function title(slide, text) { slide.addText(text, { placeholder: "title" }); }
 function contentSlide(section, text, notes) {
+  DARKS = [];
   const s = pres.addSlide({ masterName: "CAUSA_CONTENT", sectionTitle: section });
   title(s, text);
+  T(s, section.toUpperCase(), 0.6, 0.28, 8, 0.25, { fontSize: 11, bold: true, color: ACC, charSpacing: 3 });
   s.addNotes(notes);
   return s;
 }
@@ -135,10 +158,11 @@ function contentSlide(section, text, notes) {
 // =====================================================================
 pres.addSection({ title: "Opening" });
 {
+  DARKS = [];
   const s = pres.addSlide({ masterName: "CAUSA_TITLE", sectionTitle: "Opening" });
-  T(s, "CAUSA", 0.8, 1.55, 7, 1.6, { fontSize: 96, bold: true, color: TXT, valign: "middle" });
-  T(s, "A Compiler for Explainable and Counterfactual Programming", 0.8, 3.25, 6.6, 1.1, { fontSize: 26, italic: true, color: CYAN });
-  T(s, "Compiler Design Project  ·  Final Review", 0.8, 4.55, 6.6, 0.4, { fontSize: 18, color: TXT });
+  T(s, "CAUSA", 0.8, 1.55, 7, 1.6, { fontSize: 96, bold: true, valign: "middle" });
+  T(s, "A Compiler for Explainable and Counterfactual Programming", 0.8, 3.25, 6.6, 1.2, { fontSize: 26, italic: true, color: ACC });
+  T(s, "Compiler Design Project  ·  Final Review", 0.8, 4.6, 6.6, 0.4, { fontSize: 18 });
   T(s, [
     { text: "[Student name]   ·   [Registration number]", options: { breakLine: true } },
     { text: "[School / University]", options: { breakLine: true } },
@@ -146,7 +170,7 @@ pres.addSection({ title: "Opening" });
   ], 0.8, 5.25, 6.6, 1.2, { fontSize: 15, color: MUTED, paraSpaceAfter: 4 });
 
   // motif: a real fragment of the pricing dependency graph
-  card(s, 7.9, 1.25, 4.85, 4.9, { fill: { color: "0E141B" } });
+  panel(s, 7.9, 1.25, 4.85, 4.9);
   T(s, "pricing.cau  ·  dependency fragment", 8.15, 1.4, 4.4, 0.3, { fontSize: 11, color: MUTED, bold: true });
   const nx = [8.15, 9.7, 11.25], nw = 1.35, nh = 0.62;
   const P = { price: [nx[0], 2.1], discount: [nx[0], 3.3], savings: [nx[1], 2.1], subtotal: [nx[2], 2.1], total: [nx[2], 3.9] };
@@ -174,23 +198,23 @@ pres.addSection({ title: "Problem and idea" });
   const s = contentSlide("Problem and idea", "A result appears. Its reasoning does not",
     "The problem in under 20 seconds. A program computes a number such as a total price. To understand it, you normally read the code and trace values by hand. Three questions come up all the time: why did this result occur, what depends on this input, and what changes if this value changes. In most workflows each answer means manual tracing, print statements, or editing and rerunning.\n\nTransition: so what would it look like if the language itself answered these questions?\n\nLikely question: 'Debuggers already do this.' Debuggers show execution state; CAUSA answers these questions about the program's dependency structure as language operations, and it can run the hypothetical without touching the real result.");
   // abstract opaque code block -> result
-  card(s, 0.6, 1.55, 4.6, 2.2, { fill: { color: "0E141B" } });
+  panel(s, 0.6, 1.55, 4.6, 2.2);
   [0.35, 0.7, 1.05, 1.4, 1.75].forEach((dy, i) => {
     const widths = [3.2, 2.6, 3.5, 2.1, 2.9];
     s.addShape(pres.ShapeType.roundRect, { x: 0.9, y: 1.55 + dy, w: widths[i], h: 0.14, rectRadius: 0.05, fill: { color: LINE }, line: { color: LINE, width: 0 }, objectName: oid("bar") });
   });
   T(s, "program", 0.9, 1.62 - 0.05, 2, 0.25, { fontSize: 11, color: MUTED, bold: true });
-  arrow(s, 5.3, 2.65, 6.6, 2.65, CYAN, 2.5);
-  card(s, 6.7, 1.55, 3.7, 2.2);
+  arrow(s, 5.3, 2.65, 6.6, 2.65, ACC, 2.5);
+  panel(s, 6.7, 1.55, 3.7, 2.2);
   T(s, "total", 6.95, 1.8, 3.2, 0.4, { fontFace: MONO, fontSize: 18, color: MUTED });
   T(s, "88.375", 6.95, 2.3, 3.2, 0.9, { fontFace: MONO, fontSize: 48, bold: true, color: TXT });
-  T(s, "?", 10.75, 1.45, 1.8, 2.4, { fontSize: 120, bold: true, color: CYAN, align: "center", valign: "middle" });
+  T(s, "?", 10.75, 1.45, 1.8, 2.4, { fontSize: 120, bold: true, color: ACC, align: "center", valign: "middle" });
   // three questions
   const Q = [["Why did this result occur?", "explain"], ["What depends on this input?", "impact"], ["What changes if this value changes?", "whatif"]];
   Q.forEach(([q, op], i) => {
     const x = 0.6 + i * 4.1;
     card(s, x, 4.3, 3.93, 2.2);
-    T(s, String(i + 1), x + 0.3, 4.5, 0.6, 0.8, { fontSize: 40, bold: true, color: CYAN });
+    T(s, String(i + 1), x + 0.3, 4.5, 0.6, 0.8, { fontSize: 40, bold: true, color: ACC });
     T(s, q, x + 0.3, 5.3, 3.4, 0.85, { fontSize: 20, bold: true, color: TXT });
   });
 }
@@ -201,7 +225,7 @@ pres.addSection({ title: "Problem and idea" });
 {
   const s = contentSlide("Problem and idea", "Objectives: dependencies as a language feature",
     "Motivation versus delivery. The motivation is that understanding a computed value usually costs manual tracing. The five objectives follow from that, and every one is implemented in version 1; the tag at the bottom of each card names where it lives in the repository. 'Implemented' here means built and covered by automated tests, not planned.\n\nTransition: before the design, a quick comparison with how this is done today.\n\nLikely question: 'What is out of scope?' Conditionals, loops, functions, recursion, mutation, strings and collections are deferred (language specification section 13); version 1 is deliberately small so the dependency semantics can be precise.");
-  T(s, [{ text: "Motivation  ", options: { bold: true, color: CYAN } }, { text: "Understanding a computed value usually means tracing code by hand." }], 0.6, 1.4, 12.1, 0.4, { fontSize: 18 });
+  T(s, [{ text: "Motivation  ", options: { bold: true, color: ACC } }, { text: "Understanding a computed value usually means tracing code by hand." }], 0.6, 1.4, 12.1, 0.4, { fontSize: 18 });
   const O = [
     ["Source-level dependency awareness", "Each binding records the names its expression uses.", "semantic.py · ir.py"],
     ["Explainable calculations", "explain prints a derivation tree with values and source expressions.", "runtime: causa_explain"],
@@ -212,10 +236,10 @@ pres.addSection({ title: "Problem and idea" });
   O.forEach(([h, d, tag], i) => {
     const x = 0.6 + i * 2.45, w = 2.3;
     card(s, x, 2.1, w, 4.4);
-    s.addShape(pres.ShapeType.ellipse, { x: x + 0.25, y: 2.35, w: 0.55, h: 0.55, fill: { color: "11333B" }, line: { color: CYAN, width: 1.5 }, objectName: oid("badge") });
-    T(s, String(i + 1), x + 0.25, 2.35, 0.55, 0.55, { fontSize: 18, bold: true, color: CYAN, align: "center", valign: "middle" });
+    s.addShape(pres.ShapeType.ellipse, { x: x + 0.25, y: 2.35, w: 0.55, h: 0.55, fill: { color: PAPER }, line: { color: ACC, width: 1.5 }, objectName: oid("badge") });
+    T(s, String(i + 1), x + 0.25, 2.35, 0.55, 0.55, { fontSize: 18, bold: true, color: ACC, align: "center", valign: "middle" });
     T(s, h, x + 0.25, 3.15, w - 0.5, 1.1, { fontSize: 18, bold: true });
-    T(s, d, x + 0.25, 4.3, w - 0.5, 1.35, { fontSize: 14, color: MUTED });
+    T(s, d, x + 0.25, 4.3, w - 0.5, 1.35, { fontSize: 14, color: GREY });
     chip(s, "✓ Implemented", x + 0.25, 5.65, 1.5, 0.3, TEAL, { fontSize: 11 });
     T(s, tag, x + 0.25, 6.05, w - 0.4, 0.3, { fontFace: MONO, fontSize: 11, color: MUTED });
   });
@@ -234,7 +258,7 @@ pres.addSection({ title: "Problem and idea" });
     ["Keep dependencies through optimization", "Depends on the tool; not a language guarantee", "verified optimizer", "binding-level graph re-checked after optimization"],
   ];
   T(s, "Conventional workflow", 3.9, 1.45, 4.2, 0.4, { fontSize: 16, bold: true, color: MUTED });
-  T(s, "CAUSA", 8.5, 1.45, 4.2, 0.4, { fontSize: 16, bold: true, color: CYAN });
+  T(s, "CAUSA", 8.5, 1.45, 4.2, 0.4, { fontSize: 16, bold: true, color: ACC });
   rows.forEach(([dim, conv, op, desc], i) => {
     const y = 1.95 + i * 1.12;
     card(s, 0.6, y, 12.13, 1.0);
@@ -255,7 +279,7 @@ pres.addSection({ title: "Problem and idea" });
   ops.forEach(([k, d], i) => {
     const y = 1.6 + i * 0.88;
     card(s, 0.6, y, 5.7, 0.74);
-    T(s, k, 0.85, y, 1.5, 0.74, { fontFace: MONO, fontSize: 18, bold: true, color: VIOLET, valign: "middle" });
+    T(s, k, 0.85, y, 1.5, 0.74, { fontFace: MONO, fontSize: 18, bold: true, color: INK, valign: "middle" });
     T(s, d, 2.4, y, 3.8, 0.74, { fontSize: 15, valign: "middle" });
   });
   codeCard(s, 6.7, 1.6, 6.03, 4.3, "example.cau", highlight(
@@ -269,7 +293,7 @@ show total                # total = 75.0
 explain total
 whatif price = 160 show total
 impact price`, 15));
-  card(s, 0.6, 6.15, 12.13, 0.7, { fill: { color: "11333B" }, line: { color: CYAN, width: 1 } });
+  card(s, 0.6, 6.15, 12.13, 0.7, { line: { color: ACC, width: 1.5 } });
   T(s, "A custom language and compiler (Python → C99 → native executable): not a Python library, not a graph viewer.", 0.85, 6.15, 11.7, 0.7, { fontSize: 16, bold: true, valign: "middle" });
 }
 
@@ -281,9 +305,9 @@ impact price`, 15));
     "A concise literature survey; the full verified bibliography is on the last slide. Four themes. Dependency analysis: Weiser's program slicing and the program dependence graph of Ferrante, Ottenstein and Warren are the classic foundations for asking which statements affect a value. Provenance: the Cheney, Chiticariu and Tan survey, and the Cheney, Ahmed and Acar paper on provenance as dependency analysis, connect dependencies to explanations of results. Explanations and counterfactuals: the Whyline lets programmers ask why-questions about program behavior, and the Karimi et al. 2022 survey covers contrastive and counterfactual explanations. Compilers and testing: LLVM and MLIR are reference intermediate-representation designs, and the compiler-testing survey by Chen et al. and the fuzzing survey preprint by Ma frame how compilers are validated.\n\nClaim discipline: CAUSA uses established ideas. Its contribution is integrating dependency tracking, explanation and counterfactual evaluation into one small language, compiler and runtime workflow. I am not claiming it is the first system of its kind.\n\nRecent sources: Karimi et al. is 2022; the Ma survey is a 2023 arXiv preprint, not peer reviewed.");
   const C = [
     ["Dependency analysis", VIOLET, [["[1] Weiser 1984", "program slicing", "Foundational"], ["[2] Ferrante et al. 1987", "program dependence graph", "Foundational"]], "Which statements affect a value"],
-    ["Provenance", CYAN, [["[3] Cheney et al. 2009", "why, how, where provenance", "Directly related"], ["[4] Cheney et al. 2011", "provenance as dependency analysis", "Directly related"]], "Dependencies explain results"],
+    ["Provenance", TEAL, [["[3] Cheney et al. 2009", "why, how, where provenance", "Directly related"], ["[4] Cheney et al. 2011", "provenance as dependency analysis", "Directly related"]], "Dependencies explain results"],
     ["Explanations and counterfactuals", ORANGE, [["[5] Ko & Myers 2004", "Whyline: “why” questions", "Directly related"], ["[6] Karimi et al. 2022", "counterfactual explanations survey", "Recent · related"]], "Asking why, and what if"],
-    ["Compilers and testing", TEAL, [["[7] Lattner & Adve 2004", "LLVM IR"], ["[8] Lattner et al. 2021", "MLIR"], ["[9] Chen et al. 2020", "compiler testing survey"], ["[10] Ma 2023 (preprint)", "compiler fuzzing survey"]], "IR design and validation"],
+    ["Compilers and testing", BLUE, [["[7] Lattner & Adve 2004", "LLVM IR"], ["[8] Lattner et al. 2021", "MLIR"], ["[9] Chen et al. 2020", "compiler testing survey"], ["[10] Ma 2023 (preprint)", "compiler fuzzing survey"]], "IR design and validation"],
   ];
   C.forEach(([h, col, refs, rel], i) => {
     const x = 0.6 + i * 3.05, w = 2.92;
@@ -310,6 +334,7 @@ pres.addSection({ title: "Architecture" });
 {
   const s = contentSlide("Architecture", "System architecture",
     "The most important slide. Source code in a .cau file flows through the front end: the lexer produces tokens on demand, the hand-written recursive-descent parser builds the AST, and semantic analysis resolves names and checks types. The middle is the Causal IR, a typed single-assignment graph with stable node IDs and explicit dependency edges, plus a frozen binding-level provenance graph, and the optimizer, which may only make rewrites that leave that graph unchanged. The back end is the C code generator, which emits deterministic C99 together with metadata tables; this is compiled together with the CAUSA runtime by a system C compiler into a native executable.\n\nThe Python compiler performs every step up to and including C generation; it never runs the C compiler itself. The runtime library provides the language's execution operations: explain, impact, whatif and assert, plus checked arithmetic and launch-time --set validation in the runtime header.\n\nLikely question: 'Why does the compiler not call gcc?' It is a documented design decision for the first version; a single build command is listed as a next step.");
+  panel(s, 0.45, 1.2, 12.43, 4.95);
   // legend
   [["Front end · Python", CYAN], ["Causal IR and optimizer · Python", VIOLET], ["Back end · C", TEAL]].forEach(([t, c], i) => {
     const x = 0.6 + [0, 2.9, 6.6][i];
@@ -344,7 +369,7 @@ pres.addSection({ title: "Architecture" });
     arrow(s, x + 0.72, 5.3, x + 0.72, 5.55, TEAL, 1.2, false);
     chip(s, c, x, 5.55, 1.45, 0.4, TEAL, { fontFace: MONO, fontSize: 12 });
   });
-  T(s, "Dependencies are computed at compile time and embedded as metadata; the executable records values.", 0.6, 6.4, 12.13, 0.4, { fontSize: 15, italic: true, color: MUTED });
+  T(s, "Dependencies are computed at compile time and embedded as metadata; the executable records values.", 0.6, 6.4, 12.13, 0.4, { fontSize: 15, italic: true, color: GREY });
 }
 
 // =====================================================================
@@ -354,6 +379,7 @@ pres.addSection({ title: "Demonstration" });
 {
   const s = contentSlide("Demonstration", "Language example: a pricing model",
     "The running example, examples/pricing.cau in the repository. Inputs are price, discount, tax, fee and units; lets compute savings, subtotal and total, plus expensive, per_unit and bulk (not shown on this slide to keep it readable). With the source values: savings is 100 times 0.25, which is 25.0; subtotal is 100 minus 25.0, which is 75.0; total is 75.0 times (1 plus 0.125) plus 4, which is 88.375. per_unit is 88.375 divided by 4, which is 22.09375, and expensive and bulk are both true. These values are the program's real output, checked against the documentation.\n\nTransition: the same program as a dependency graph.\n\nLikely question: 'Why does 100 print as 100 but 25.0 as 25.0?' Types are inferred from literals; price is an int and savings is a float, and the runtime prints floats like Python's repr.");
+  panel(s, 6.85, 1.35, 5.88, 4.95);
   codeCard(s, 0.6, 1.5, 5.9, 4.7, "pricing.cau (excerpt)", highlight(
 `input price = 100
 input discount = 0.25
@@ -375,7 +401,7 @@ show total`, 16));
     T(s, val, 9.9, y, 2.6, 1.0, { fontFace: MONO, fontSize: 30, bold: true, align: "right", valign: "middle" });
     if (i < 3) arrow(s, 9.85, y + 1.0, 9.85, y + 1.22, MUTED, 1.5);
   });
-  T(s, "100  →  25.0 savings  →  75.0 subtotal  →  88.375 total", 0.6, 6.4, 12.13, 0.4, { fontFace: MONO, fontSize: 16, color: CYAN, bold: true });
+  T(s, "100  →  25.0 savings  →  75.0 subtotal  →  88.375 total", 0.6, 6.4, 12.13, 0.4, { fontFace: MONO, fontSize: 16, color: ACC, bold: true });
 }
 
 // =====================================================================
@@ -384,6 +410,7 @@ show total`, 16));
 {
   const s = contentSlide("Demonstration", "The dependency graph: 11 bindings, 11 edges",
     "The same program as a graph. Green nodes are inputs; blue nodes are let bindings. Each column is a step deeper in the DAG. Arrows here point from a binding to the bindings that use it, which matches how CAUSA Studio draws it. Be careful with direction: the compiler stores the canonical edges the other way round, each binding pointing to the names it uses, and derives the reverse direction for impact. The edges are: price and discount into savings; price and savings into subtotal; subtotal, tax and fee into total; total into expensive; total and units into per_unit; per_unit into bulk. That is 11 edges, matching the count Studio reports.\n\nKey point in the note on the slide: dependencies come from the source expressions, not from the current numbers. So x * 0 still depends on x.\n\nLikely question: 'Are there cycles?' No. Each binding can only use earlier ones, so the graph is acyclic by construction.");
+  panel(s, 0.45, 1.35, 12.43, 4.95);
   const w = 1.45, h = 0.62;
   const colx2 = [0, 1, 2, 3, 4, 5].map((i) => 0.6 + i * ((12.13 - w) / 5));
   const Y0 = 1.55;
@@ -405,9 +432,9 @@ show total`, 16));
     s.addShape(pres.ShapeType.roundRect, { x: 0.6 + i * 1.9, y: 6.0, w: 0.3, h: 0.22, rectRadius: 0.04, fill: { color: SURF2 }, line: { color: c, width: 1.5 }, objectName: oid("key") });
     T(s, t, 1.0 + i * 1.9, 5.94, 1.7, 0.34, { fontSize: 13, color: MUTED, valign: "middle" });
   });
-  T(s, "Arrow: a value flows from a binding to the bindings that use it. The compiler stores the reverse (binding → names it uses).", 4.5, 5.9, 8.2, 0.5, { fontSize: 13, color: MUTED });
-  card(s, 0.6, 6.4, 12.13, 0.5, { fill: { color: "11333B" }, line: { color: CYAN, width: 1 } });
-  T(s, "Dependencies are derived from source expressions, not from whether the current numerical output changes.", 0.85, 6.4, 11.7, 0.5, { fontSize: 15, bold: true, valign: "middle" });
+  T(s, "Arrow: a value flows from a binding to the bindings that use it. The compiler stores the reverse (binding → names it uses).", 4.5, 5.95, 8.2, 0.35, { fontSize: 11, color: MUTED });
+  card(s, 0.6, 6.42, 12.13, 0.5, { line: { color: ACC, width: 1.5 } });
+  T(s, "Dependencies are derived from source expressions, not from whether the current numerical output changes.", 0.85, 6.42, 11.7, 0.5, { fontSize: 15, bold: true, valign: "middle" });
 }
 
 // =====================================================================
@@ -433,6 +460,7 @@ show total`, 16));
     ["  intermediates: savings, subtotal", MUTED],
   ], 14));
   // small relationship diagram
+  panel(s, 8.1, 1.4, 4.63, 5.1);
   T(s, "depends on", 8.3, 1.5, 2, 0.3, { fontSize: 12, color: MUTED, bold: true });
   const nw = 1.3, nh = 0.55;
   const N = { total: [9.85, 1.95, BLUE], subtotal: [8.4, 3.1, BLUE], tax: [9.95, 3.1, GREEN], fee: [11.4, 3.1, GREEN],
@@ -441,7 +469,7 @@ show total`, 16));
   const dep = [["total", "subtotal"], ["total", "tax"], ["total", "fee"], ["subtotal", "price1"], ["subtotal", "savings"], ["savings", "price2"], ["savings", "discount"]];
   dep.forEach(([a, b]) => arrow(s, N[a][0] + nw / 2, N[a][1] + nh, N[b][0] + nw / 2, N[b][1], "5B6B7B", 1.4));
   Object.keys(N).forEach((k) => node(s, N[k][0], N[k][1], nw, nh, lab(k), N[k][2], null, SURF2, 14));
-  T(s, "Each arrow: “uses”. price is reached twice; the runtime prints it once and marks it “see above”.", 8.0, 6.2, 4.7, 0.6, { fontSize: 12, color: MUTED });
+  T(s, "Each arrow: “uses”. price is reached twice; the runtime prints it once and marks it “see above”.", 8.3, 6.0, 4.3, 0.45, { fontSize: 12, color: MUTED });
 }
 
 // =====================================================================
@@ -464,6 +492,7 @@ show total`, 16));
     { text: "all: ", options: { bold: true, color: ORANGE } },
     { text: "those plus everything downstream of them" },
   ], 7.45, 2.1, 5.05, 1.6, { fontSize: 16, paraSpaceAfter: 8 });
+  panel(s, 0.45, 3.95, 12.43, 2.15);
   const ny = 4.45, nw2 = 1.5, nh2 = 0.62;
   const X = [0.6, 2.75, 4.9, 7.05, 9.2, 11.23];
   const P = { discount: [X[0], ny + 0.35], savings: [X[1], ny + 0.35], subtotal: [X[2], ny + 0.35], total: [X[3], ny + 0.35], expensive: [X[4], ny - 0.15], per_unit: [X[4], ny + 0.85], bulk: [X[5], ny + 0.85] };
@@ -475,8 +504,8 @@ show total`, 16));
     else node(s, ...P[k], nw2, nh2, k, ORANGE, null, SURF2, 14);
   });
   chip(s, "direct dependent", P.savings[0] - 0.1, P.savings[1] - 0.5, 1.7, 0.32, ORANGE, { fontSize: 12 });
-  T(s, "all affected: savings, subtotal, total, expensive, per_unit, bulk", 0.6, 4.0, 8, 0.35, { fontSize: 14, color: MUTED });
-  T(s, "Static: read from compile-time dependency tables. No values are recomputed.", 0.6, 6.2, 12.13, 0.5, { fontSize: 16, bold: true });
+  T(s, "all affected: savings, subtotal, total, expensive, per_unit, bulk", 0.7, 4.02, 8, 0.3, { fontSize: 14, color: MUTED });
+  T(s, "Static: read from compile-time dependency tables. No values are recomputed.", 0.6, 6.3, 12.13, 0.5, { fontSize: 16, bold: true });
 }
 
 // =====================================================================
@@ -487,7 +516,7 @@ show total`, 16));
     "whatif answers 'what if this input were different?'. Left is the baseline with price 100; right is the counterfactual with price 150, from CAUSA Studio's What-if panel, which runs the real runtime. savings becomes 37.5, subtotal 112.5, total 130.5625, and per_unit 32.640625; expensive stays true, and bulk flips from true to false. The table marks the override, changed values, and unchanged values.\n\nHow it works: the runtime copies the base values into a separate counterfactual environment, writes the overrides there, and re-evaluates only the dependency cone of the overridden inputs. The original execution state is never written; in the pricing demo, the final 'show total' after five whatif statements still prints 88.375.\n\nLaunch-time inputs are different: ./pricing --set price=150 --set discount=0.3 changes the real inputs before anything runs (total becomes 122.125) and every statement, including each whatif's before values, sees them. Invalid arguments are rejected before any output.\n\nLikely question: 'What if a hypothetical fails?' A failure such as division by zero is reported as an error outcome, dependents are marked unavailable, and the program continues.");
   // baseline vs counterfactual
   const rows = [["price", "100", "150", "override"], ["savings", "25.0", "37.5", "changed"], ["subtotal", "75.0", "112.5", "changed"], ["total", "88.375", "130.5625", "changed"], ["expensive", "true", "true", "same"], ["per_unit", "22.09375", "32.640625", "changed"], ["bulk", "true", "false", "changed"]];
-  card(s, 0.6, 1.5, 7.4, 4.1);
+  panel(s, 0.6, 1.5, 7.4, 4.1);
   T(s, "binding", 0.9, 1.65, 2, 0.3, { fontSize: 12, color: MUTED, bold: true });
   T(s, "baseline", 3.0, 1.65, 1.8, 0.3, { fontSize: 12, color: MUTED, bold: true });
   T(s, "whatif price = 150", 5.0, 1.65, 2, 0.3, { fontSize: 12, color: CYAN, bold: true });
@@ -501,7 +530,7 @@ show total`, 16));
   });
   // right: isolation and launch-time
   card(s, 8.3, 1.5, 4.43, 2.0);
-  T(s, "Isolated", 8.55, 1.62, 4, 0.35, { fontSize: 17, bold: true, color: CYAN });
+  T(s, "Isolated", 8.55, 1.62, 4, 0.35, { fontSize: 17, bold: true, color: ACC });
   T(s, "A separate environment is recomputed; the real execution is never written. After five whatif statements, show total still prints 88.375.", 8.55, 2.0, 3.95, 1.45, { fontSize: 14, color: TXT });
   codeCard(s, 8.3, 3.7, 4.43, 1.9, "launch-time inputs", consoleRuns([
     ["$ ./build/pricing \\", MUTED],
@@ -510,7 +539,7 @@ show total`, 16));
     ["total = 122.125", CYAN],
   ], 13));
   T(s, "Source: values from the real runtime, shown in CAUSA Studio's What-if panel; launch output from docs/demonstration.md.", 0.6, 5.85, 12.13, 0.35, { fontSize: 12, color: MUTED });
-  T(s, "changed input → affected calculations recomputed → resulting output", 0.6, 6.35, 12.13, 0.4, { fontSize: 16, bold: true, color: CYAN });
+  T(s, "changed input → affected calculations recomputed → resulting output", 0.6, 6.35, 12.13, 0.4, { fontSize: 16, bold: true, color: ACC });
 }
 
 // =====================================================================
@@ -548,7 +577,7 @@ pres.addSection({ title: "Internals and Studio" });
   ], 5.7, 2.05, 3.1, 3.0, { fontSize: 14, paraSpaceAfter: 4 });
   T(s, "pricing.cau: 30 → 28 nodes", 5.7, 5.7, 3.1, 0.4, { fontSize: 13, color: MUTED });
   // right: invariant
-  card(s, 9.25, 1.5, 3.48, 4.75, { line: { color: ORANGE, width: 1.5 } });
+  panel(s, 9.25, 1.5, 3.48, 4.75, { line: { color: ORANGE, width: 1.5 } });
   T(s, "Design invariant", 9.5, 1.62, 3, 0.35, { fontSize: 17, bold: true, color: ORANGE });
   T(s, highlight("let y = x * 0\nlet z = x - x", 14), 9.5, 2.1, 3.0, 0.8, {});
   T(s, "A numeric simplifier would turn both into 0 and erase the edge to x.", 9.5, 3.0, 3.0, 0.9, { fontSize: 14 });
@@ -564,6 +593,7 @@ pres.addSection({ title: "Internals and Studio" });
 {
   const s = contentSlide("Internals and Studio", "Code generation and the runtime",
     "From IR to a program. The generator emits one deterministic C99 file: one case per IR node in a switch, metadata tables describing nodes, bindings and dependencies, and a main that runs the program's steps in order. Integers map to int64_t with overflow checked before computing, so there is no signed-overflow undefined behaviour; floats map to double, and float literals are emitted as exact hexadecimal constants so the C compiler does no decimal rounding. Division by zero and non-finite results become runtime errors R101 to R103 reported at the operator's source location.\n\nThe runtime library, causa_runtime.c, uses only the C standard library. It formats values the way Python's repr does, and implements explain, impact, whatif and assert from the metadata tables. The system C compiler then builds generated C plus runtime into the native executable.\n\nWhy C? It gives a real native executable with little machinery, a stable target, and lets the runtime be small and testable. Likely question: 'Why is gcc -O2 so slow in the benchmark?' The generated file has one switch case per IR node, which -O2 optimizes slowly; see the evaluation slide.");
+  panel(s, 0.45, 1.3, 12.43, 1.0);
   const flow = [["CAUSA", CYAN], ["C source", TEAL], ["C runtime + system compiler", TEAL], ["native executable", TEAL]];
   const fw = [1.7, 1.9, 3.4, 2.3];
   let fx = 0.6;
@@ -591,7 +621,7 @@ pres.addSection({ title: "Internals and Studio" });
     T(s, h, 8.5, y + 0.1, 4.0, 0.35, { fontSize: 16, bold: true, color: TEAL });
     T(s, d, 8.5, y + 0.48, 4.05, 0.65, { fontSize: 13, color: MUTED });
   });
-  T(s, "Build:  gcc -std=c99 -I causa/runtime pricing.c causa/runtime/causa_runtime.c -o pricing -lm", 0.6, 6.5, 12.13, 0.35, { fontFace: MONO, fontSize: 12, color: MUTED });
+  T(s, "Build:  gcc -std=c99 -I causa/runtime pricing.c causa/runtime/causa_runtime.c -o pricing -lm", 0.6, 6.5, 12.13, 0.35, { fontFace: MONO, fontSize: 12, color: GREY });
 }
 
 // =====================================================================
@@ -605,8 +635,8 @@ pres.addSection({ title: "Internals and Studio" });
   const marks = [[1, 0.17, 0.35], [2, 0.17, 0.78], [3, 0.62, 0.16], [4, 0.6, 0.055], [5, 0.62, 0.975]];
   marks.forEach(([k, fx, fy]) => {
     const cx = 0.6 + iw * fx, cy = 1.45 + ih * fy;
-    s.addShape(pres.ShapeType.ellipse, { x: cx - 0.14, y: cy - 0.14, w: 0.28, h: 0.28, fill: { color: ORANGE }, line: { color: BG, width: 1 }, objectName: oid("callout") });
-    T(s, String(k), cx - 0.14, cy - 0.14, 0.28, 0.28, { fontSize: 11, bold: true, color: BG, align: "center", valign: "middle" });
+    s.addShape(pres.ShapeType.ellipse, { x: cx - 0.14, y: cy - 0.14, w: 0.28, h: 0.28, fill: { color: ACC }, line: { color: "FFFFFF", width: 1 }, objectName: oid("callout") });
+    T(s, String(k), cx - 0.14, cy - 0.14, 0.28, 0.28, { fontSize: 11, bold: true, color: "FFFFFF", align: "center", valign: "middle" });
   });
   // crops
   const cw = 4.0, wh = cw * 415 / 1029, gh = cw * 375 / 1319, c2 = 2.4, ch = c2 * 470 / 745;
@@ -616,9 +646,9 @@ pres.addSection({ title: "Internals and Studio" });
   const L = ["Source editor", "Integrated console", "Dependency graph", "Analysis tabs", "Build / runtime status"];
   L.forEach((t, i) => {
     const x = 0.6 + (i % 5) * 2.43;
-    s.addShape(pres.ShapeType.ellipse, { x, y: 6.1, w: 0.24, h: 0.24, fill: { color: ORANGE }, line: { color: BG, width: 0 }, objectName: oid("key") });
-    T(s, String(i + 1), x, 6.1, 0.24, 0.24, { fontSize: 10, bold: true, color: BG, align: "center", valign: "middle" });
-    T(s, t, x + 0.32, 6.05, 2.0, 0.34, { fontSize: 13, color: TXT, valign: "middle" });
+    s.addShape(pres.ShapeType.ellipse, { x, y: 6.1, w: 0.24, h: 0.24, fill: { color: ACC }, line: { color: ACC, width: 0 }, objectName: oid("key") });
+    T(s, String(i + 1), x, 6.1, 0.24, 0.24, { fontSize: 10, bold: true, color: "FFFFFF", align: "center", valign: "middle" });
+    T(s, t, x + 0.32, 6.05, 2.0, 0.34, { fontSize: 13, valign: "middle" });
   });
   T(s, "Real application screenshots, captured by presentation/capture_studio.py (Linux, Xvfb, Python 3.12). Pricing example: 5 inputs · 6 lets · 11 edges.", 0.6, 6.5, 12.13, 0.4, { fontSize: 11, color: MUTED });
 }
@@ -630,8 +660,8 @@ pres.addSection({ title: "Evaluation" });
 {
   const s = contentSlide("Evaluation", "Testing and validation",
     "Headline: 205 automated tests passed, with none skipped, in the recorded full run on Windows 11 with Python 3.11.9 and MSYS2 UCRT64 GCC 16.1.0. The test suite in the repository today has 257 tests: those 205 compiler, runtime and demo tests plus 52 CAUSA Studio tests (service, formatting and window tests). I counted both from the repository; the 205 pass figure is the recorded Windows result, and I did not re-run Windows here.\n\nWhat the tests check, from the README: every specification runtime case is built and its stdout, stderr and exit status compared byte for byte; every shell command in docs/demonstration.md is executed and its output compared; float formatting is compared with Python's repr on 35,000 values on every run; the C literal parser for launch arguments is compared with the Python lexer on about 12,000 strings; and generated C compiles warning-free with -std=c99 -Wall -Wextra -Wpedantic -Werror. A fresh-clone check also compiled selected examples at -O0 and -O2 under those strict flags.\n\nQualification to state out loud: generated-C execution is validated on Windows with MSYS2 UCRT64 GCC. On Linux/WSL the compiler-side tests passed but generated C was not run there. I make no claim of comprehensive cross-platform validation.\n\nLikely question: 'Why not a pass percentage?' Because there is one recorded configuration and no failing runs to report against; a percentage would add nothing.");
-  card(s, 0.6, 1.5, 5.4, 4.7, { line: { color: TEAL, width: 1.5 } });
-  T(s, "205", 0.9, 1.6, 4.8, 1.9, { fontSize: 110, bold: true, color: TEAL, valign: "middle" });
+  card(s, 0.6, 1.5, 5.4, 4.7, { line: { color: ACC, width: 1.5 } });
+  T(s, "205", 0.9, 1.6, 4.8, 1.9, { fontSize: 110, bold: true, color: ACC, valign: "middle" });
   T(s, "automated tests passed", 0.9, 3.55, 4.8, 0.5, { fontSize: 22, bold: true });
   T(s, "0 skipped · recorded full run", 0.9, 4.1, 4.8, 0.4, { fontSize: 16, color: MUTED });
   T(s, "Windows 11 · Python 3.11.9 · MSYS2 UCRT64 GCC 16.1.0", 0.9, 4.6, 4.8, 0.6, { fontSize: 13, color: MUTED });
@@ -657,6 +687,8 @@ pres.addSection({ title: "Evaluation" });
 {
   const s = contentSlide("Evaluation", "Performance and evaluation",
     "These are previously recorded results from benchmarks/benchmark.py and docs/evaluation.md, measured on one Windows 11 machine (AMD, 8 logical CPUs) with Python 3.11.9 and GCC 16.1.0, median of five runs, on 2026-10-25. I did not re-run the benchmark here: a Linux re-run would be a different environment and would not be comparable.\n\nThe chart shows only front-end time, which is the CAUSA compiler up to Causal IR: lexing, parsing, semantic analysis and IR construction. It is in milliseconds and grows with program size: 1.2 ms for the 6-let pricing program up to 177 ms for 1,000 lets. The table keeps native compilation (gcc at -O0 and -O2) and run time as separate columns on purpose, because they are different quantities on different scales: gcc takes seconds, the front end takes milliseconds. Compilation dominates these timings; the generated C has one switch case per IR node, which -O2 optimizes slowly. Executables finish in roughly 24 to 29 ms, which is close to process start-up cost on this machine, so these runs cannot distinguish workloads.\n\nCaveats to state: one machine, one OS, one C compiler, one session; workloads other than pricing are synthetic; wall-clock noise of up to about 30 percent between runs was observed. This is an engineering evaluation, not a speed comparison with any other language and not a claim of superiority.\n\nLikely question: 'Does the optimizer speed things up?' Not measurably here: it cut fan-1000 from 8,002 to 5,001 IR nodes but changed neither run time nor gcc time noticeably, and it never changed program output.");
+  panel(s, 0.6, 1.45, 5.6, 4.2);
+  panel(s, 6.4, 1.45, 6.33, 2.95);
   s.addChart(pres.charts.BAR, [{ name: "Front end (ms)", labels: ["pricing (6 lets)", "chain-100", "chain-1000", "fan-1000"], values: [1.2, 7.4, 102, 177] }], {
     x: 0.6, y: 1.45, w: 5.6, h: 4.2, barDir: "col", chartColors: [CYAN],
     showTitle: true, title: "Front-end time by workload (ms, median of 5)", titleColor: TXT, titleFontSize: 13, titleFontFace: "+mn-lt",
@@ -668,7 +700,7 @@ pres.addSection({ title: "Evaluation" });
   });
   // table: three separated quantities
   const hdr = (t, c) => ({ text: t, options: { bold: true, color: c, fill: { color: SURF2 }, fontSize: 12, align: "right", fontFace: SANS } });
-  const cell = (t, o = {}) => ({ text: t, options: Object.assign({ color: TXT, fontSize: 13, align: "right", fontFace: MONO, fill: { color: SURF } }, o) });
+  const cell = (t, o = {}) => ({ text: t, options: Object.assign({ color: TXT, fontSize: 13, align: "right", fontFace: MONO, fill: { color: PANEL } }, o) });
   const rows = [
     [{ text: "workload", options: { bold: true, color: MUTED, fill: { color: SURF2 }, fontSize: 12, fontFace: SANS } }, hdr("front end", CYAN), hdr("gcc -O0", VIOLET), hdr("gcc -O2", VIOLET), hdr("run", TEAL)],
     [cell("pricing", { align: "left" }), cell("1.2"), cell("366"), cell("451"), cell("23.9")],
@@ -676,16 +708,16 @@ pres.addSection({ title: "Evaluation" });
     [cell("chain-1000", { align: "left" }), cell("102"), cell("1,651"), cell("5,769"), cell("27.8")],
     [cell("fan-1000", { align: "left" }), cell("177"), cell("2,667"), cell("10,561"), cell("28.8")],
   ];
-  s.addTable(rows, { x: 6.5, y: 1.55, w: 6.23, colW: [1.63, 1.15, 1.15, 1.15, 1.15], rowH: 0.55, border: { type: "solid", color: LINE, pt: 0.75 }, margin: [0, 0.12, 0, 0.12], valign: "middle", objectName: "benchmark-table" });
-  T(s, "milliseconds, median of 5 runs. Three different quantities: CAUSA front end, native C compile, program run.", 6.5, 4.4, 6.23, 0.6, { fontSize: 12, color: MUTED });
+  s.addTable(rows, { x: 6.5, y: 1.55, w: 6.13, colW: [1.53, 1.15, 1.15, 1.15, 1.15], rowH: 0.55, border: { type: "solid", color: LINE, pt: 0.75 }, margin: [0, 0.12, 0, 0.12], valign: "middle", objectName: "benchmark-table" });
+  T(s, "milliseconds, median of 5 runs. Three different quantities: CAUSA front end, native C compile, program run.", 6.4, 4.5, 6.33, 0.45, { fontSize: 12, color: GREY });
   const notes = [["Compilation dominates", "gcc at -O2 took 5.8–10.6 s for 1,000 lets; the CAUSA front end took 0.1–0.2 s.", VIOLET], ["Runs ≈ process start-up", "Executables finish in about 24–29 ms in every workload.", TEAL]];
   notes.forEach(([h, d, c], i) => {
     const x = 6.5 + i * 3.17;
     card(s, x, 5.0, 3.06, 1.2);
     T(s, h, x + 0.18, 5.08, 2.75, 0.35, { fontSize: 14, bold: true, color: c });
-    T(s, d, x + 0.18, 5.45, 2.75, 0.75, { fontSize: 12, color: MUTED });
+    T(s, d, x + 0.18, 5.45, 2.75, 0.75, { fontSize: 12, color: GREY });
   });
-  T(s, "Recorded on one Windows 11 machine (8 logical CPUs, Python 3.11.9, GCC 16.1.0); environment-dependent engineering measurements, not a speed claim.", 0.6, 6.4, 12.13, 0.5, { fontSize: 12, color: MUTED });
+  T(s, "Recorded on one Windows 11 machine (8 logical CPUs, Python 3.11.9, GCC 16.1.0); environment-dependent engineering measurements, not a speed claim.", 0.6, 6.4, 12.13, 0.5, { fontSize: 12, color: GREY });
 }
 
 // =====================================================================
@@ -712,6 +744,7 @@ pres.addSection({ title: "Closing" });
 // 19. Conclusion
 // =====================================================================
 {
+  DARKS = [];
   const s = pres.addSlide({ masterName: "CAUSA_TITLE", sectionTitle: "Closing" });
   s.addNotes(
     "Close. CAUSA connects compilation with explainability and counterfactual reasoning: a small language and compiler in which dependencies are first-class, so a program can say why a value was produced, what depends on a binding, and what would happen under different inputs, all without disturbing the original execution. Three takeaways on the slide. The implementation is verified by an automated test suite and demonstrated by CAUSA Studio. The limitations are real and listed. Thank you; I am happy to take questions.\n\nSuggested backup answers: dependency direction (binding to names it uses, reverse derived); why C (native output, small testable runtime); why constant folding is safe (never folds anything that could raise a runtime error, and the dependency graph is re-verified); what is not claimed (no cross-platform validation, no performance superiority, no claim of being the first system of its kind)."
@@ -721,15 +754,16 @@ pres.addSection({ title: "Closing" });
   tk.forEach(([h, d, op], i) => {
     const x = 0.8 + i * 4.0;
     card(s, x, 2.9, 3.8, 2.3);
-    T(s, op, x + 0.25, 3.05, 3.3, 0.4, { fontFace: MONO, fontSize: 16, bold: true, color: VIOLET });
-    T(s, h, x + 0.25, 3.5, 3.3, 0.5, { fontSize: 24, bold: true, color: CYAN });
+    T(s, op, x + 0.25, 3.05, 3.3, 0.4, { fontFace: MONO, fontSize: 16, bold: true, color: GREY });
+    T(s, h, x + 0.25, 3.5, 3.3, 0.5, { fontSize: 24, bold: true, color: ACC, fontFace: SERIF });
     T(s, d, x + 0.25, 4.05, 3.3, 1.0, { fontSize: 16 });
   });
-  T(s, "Questions?", 0.8, 5.75, 6, 1.0, { fontSize: 48, bold: true, color: TXT, valign: "middle" });
+  T(s, "Questions?", 0.8, 5.75, 6, 1.0, { fontSize: 48, bold: true, valign: "middle" });
   // echo motif
-  const nodes = [["price", 8.6, 6.0, GREEN], ["savings", 10.15, 5.75, BLUE], ["total", 11.55, 6.0, CYAN]];
-  arrow(s, 8.6 + 1.2, 6.3, 10.15, 6.05, MUTED, 1.5);
-  arrow(s, 10.15 + 1.2, 6.05, 11.55, 6.3, MUTED, 1.5);
+  panel(s, 8.3, 5.45, 4.43, 1.55);
+  const nodes = [["price", 8.5, 6.0, GREEN], ["savings", 10.0, 5.75, BLUE], ["total", 11.4, 6.0, CYAN]];
+  arrow(s, 8.5 + 1.2, 6.3, 10.0, 6.05, MUTED, 1.5);
+  arrow(s, 10.0 + 1.2, 6.05, 11.4, 6.3, MUTED, 1.5);
   nodes.forEach(([l, x, y, c]) => node(s, x, y, 1.2, 0.6, l, c, null, SURF2, 14));
 }
 
