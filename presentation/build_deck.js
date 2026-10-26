@@ -788,14 +788,33 @@ pres.addSection({ title: "Closing" });
     T(s, h, x + 0.25, 3.5, 3.3, 0.5, { fontSize: 24, bold: true, color: ACC, fontFace: SERIF });
     T(s, d, x + 0.25, 4.05, 3.3, 1.0, { fontSize: 16 });
   });
-  T(s, "Questions?", 0.8, 5.3, 6, 0.9, { fontSize: 48, bold: true, valign: "middle" });
-  T(s, [{ text: "github.com/ujvall/causa", options: { hyperlink: { url: "https://github.com/ujvall/causa", tooltip: "CAUSA source code" }, color: CYAN, underline: { style: "sng", color: CYAN } } }], 0.8, 6.3, 7, 0.45, { fontSize: 20, bold: true, valign: "middle" });
+  T(s, "Questions?", 0.8, 5.75, 6, 1.0, { fontSize: 48, bold: true, valign: "middle" });
   // echo motif
   panel(s, 8.3, 5.45, 4.43, 1.55);
   const nodes = [["price", 8.5, 6.0, GREEN], ["savings", 10.0, 5.75, BLUE], ["total", 11.4, 6.0, CYAN]];
   arrow(s, 8.5 + 1.2, 6.3, 10.0, 6.05, MUTED, 1.5);
   arrow(s, 10.0 + 1.2, 6.05, 11.4, 6.3, MUTED, 1.5);
   nodes.forEach(([l, x, y, c]) => node(s, x, y, 1.2, 0.6, l, c, null, SURF2, 14));
+}
+
+// =====================================================================
+// 19c. Source code (GitHub)
+// =====================================================================
+{
+  DARKS = [];
+  const s = pres.addSlide({ masterName: "CAUSA_TITLE", sectionTitle: "Closing" });
+  s.addNotes("The complete source is public: compiler, C runtime, Studio, tests, benchmarks and documentation. The README has the setup steps, and docs/demonstration.md walks through the pricing example with exact expected output.");
+  T(s, "Source code", 0.8, 0.9, 11, 1.0, { fontSize: 44, bold: true, charSpacing: -1 });
+  T(s, [{ text: "github.com/ujvall/causa", options: { hyperlink: { url: "https://github.com/ujvall/causa", tooltip: "CAUSA source code" }, color: CYAN, underline: { style: "sng", color: CYAN } } }], 0.8, 2.0, 8, 0.6, { fontSize: 28, bold: true, valign: "middle" });
+  const rows = [["causa/", "compiler pipeline and C runtime"], ["studio/", "CAUSA Studio desktop application"], ["examples/", "pricing.cau and other sample programs"], ["tests/", "automated test suite"], ["benchmarks/", "benchmark script behind the performance slide"], ["docs/", "language specification, architecture, demonstration, evaluation"]];
+  rows.forEach(([d, t], i) => {
+    const y = 3.1 + i * 0.58;
+    card(s, 0.8, y, 8.1, 0.48);
+    T(s, d, 1.0, y, 1.8, 0.48, { fontFace: MONO, fontSize: 14, bold: true, color: CYAN, valign: "middle" });
+    T(s, t, 2.8, y, 6.0, 0.48, { fontSize: 13, color: TXT, valign: "middle" });
+  });
+  s.addImage({ path: path.join(ASSETS, "repo_qr.png"), x: 9.7, y: 3.1, w: 3.0, h: 3.0, altText: "QR code linking to github.com/ujvall/causa" });
+  T(s, "Scan to open the repository", 9.7, 6.25, 3.0, 0.4, { fontSize: 13, color: MUTED, align: "center" });
 }
 
 // =====================================================================
