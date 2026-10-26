@@ -738,6 +738,39 @@ pres.addSection({ title: "Closing" });
 }
 
 // =====================================================================
+// 18b. Sample source code (verbatim excerpt of causa/optimizer.py)
+// =====================================================================
+{
+  const s = contentSlide("Closing", "Sample code: the optimizer's safety check",
+    "An excerpt from causa/optimizer.py (code verbatim, comments shortened), the end of optimize(). After rewriting, the optimizer removes only constants that lost all users, re-validates the module (which re-derives the binding-level graph and compares it with the recorded provenance), and then checks that bindings, provenance, anchors and actions are untouched. A violation raises an internal compiler error rather than silently producing different output. This is the code behind the invariant on the Causal IR slide.");
+  const L = [
+    ["    # Remove consts that lost all users.", MUTED],
+    ["    used = {o for n in nodes.values() for o in n.operands}", TXT],
+    ["    used |= {s.root for s in steps if isinstance(s, Assert)}", TXT],
+    ["    for node_id in sorted(nodes):", VIOLET],
+    ["        if nodes[node_id].kind is NodeKind.CONST and node_id not in used:", TXT],
+    ["            del nodes[node_id]", TXT],
+    ["            log.append(Rewrite(\"remove\", node_id, \"const node\", \"no remaining users\"))", ORANGE],
+    ["", TXT],
+    ["    result = replace(module, nodes=tuple(nodes.values()), steps=tuple(steps))", TXT],
+    ["    validate_ir(result)  # re-derives the binding-level graph, compares with provenance", GREEN],
+    ["    _check_preserved(module, result)", GREEN],
+    ["    return OptimizationResult(result, tuple(log))", TXT],
+  ];
+  codeCard(s, 0.6, 1.35, 8.1, 4.5, "causa/optimizer.py  (excerpt of optimize; comments shortened)", consoleRuns(L, 10.5));
+  card(s, 9.0, 1.35, 3.73, 1.35);
+  T(s, "Only constants are removed", 9.2, 1.5, 3.4, 0.3, { fontSize: 14, bold: true, color: CYAN });
+  T(s, "A constant cannot raise a runtime error, so deleting unused ones is safe.", 9.2, 1.9, 3.4, 0.7, { fontSize: 12, color: MUTED });
+  card(s, 9.0, 2.9, 3.73, 1.35);
+  T(s, "Re-derive and compare", 9.2, 3.05, 3.4, 0.3, { fontSize: 14, bold: true, color: GREEN });
+  T(s, "validate_ir rebuilds the dependency graph and checks it against provenance.", 9.2, 3.45, 3.4, 0.75, { fontSize: 12, color: MUTED });
+  card(s, 9.0, 4.45, 3.73, 1.4);
+  T(s, "Fail loudly", 9.2, 4.6, 3.4, 0.3, { fontSize: 14, bold: true, color: ORANGE });
+  T(s, "Any change to a binding, anchor or action raises an internal compiler error.", 9.2, 5.0, 3.4, 0.75, { fontSize: 12, color: MUTED });
+  T(s, "Full source: github.com/ujvall/causa", 0.6, 6.15, 8, 0.4, { fontSize: 14, color: MUTED });
+}
+
+// =====================================================================
 // 19. Conclusion
 // =====================================================================
 {
@@ -755,7 +788,8 @@ pres.addSection({ title: "Closing" });
     T(s, h, x + 0.25, 3.5, 3.3, 0.5, { fontSize: 24, bold: true, color: ACC, fontFace: SERIF });
     T(s, d, x + 0.25, 4.05, 3.3, 1.0, { fontSize: 16 });
   });
-  T(s, "Questions?", 0.8, 5.75, 6, 1.0, { fontSize: 48, bold: true, valign: "middle" });
+  T(s, "Questions?", 0.8, 5.3, 6, 0.9, { fontSize: 48, bold: true, valign: "middle" });
+  T(s, [{ text: "github.com/ujvall/causa", options: { hyperlink: { url: "https://github.com/ujvall/causa", tooltip: "CAUSA source code" }, color: CYAN, underline: { style: "sng", color: CYAN } } }], 0.8, 6.3, 7, 0.45, { fontSize: 20, bold: true, valign: "middle" });
   // echo motif
   panel(s, 8.3, 5.45, 4.43, 1.55);
   const nodes = [["price", 8.5, 6.0, GREEN], ["savings", 10.0, 5.75, BLUE], ["total", 11.4, 6.0, CYAN]];
